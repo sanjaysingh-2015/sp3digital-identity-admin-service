@@ -1,31 +1,44 @@
 const fs = require('fs');
 const path = require('path');
-const { Sequelize, DataTypes } = require('sequelize');
-const sequelize = require('../config/db');
+const { Sequelize, DataTypes, Model } = require('sequelize');
+
+// Destructure `sequelize` from db.js config
+const { sequelize } = require('../config/db');
 
 const db = {};
 
-// Read all `.model.js` files dynamically
 fs.readdirSync(__dirname).forEach((file) => {
+  // Only process model files, skipping index.js and associations.js
   if (file.endsWith('.model.js')) {
     const modelModule = require(path.join(__dirname, file));
 
-    // Handle both functional exports module.exports = (sequelize, DataTypes) => ...
-    // and direct exports module.exports = Model
-    const model = typeof modelModule === 'function' 
-      ? modelModule(sequelize, DataTypes) 
-      : modelModule;
+    let model;
 
-    db[model.name] = model;
+    // 1. If the exported module is an ES6 class extending Sequelize.Model
+    if (typeof modelModule === 'function' && modelModule.prototype instanceof Model) {
+      model = modelModule.init(modelModule.schema || {}, { sequelize });
+    } 
+    // 2. If the exported module is a standard factory function: (sequelize, DataTypes) => ...
+    else if (typeof modelModule === 'function') {
+      model = modelModule(sequelize, DataTypes);
+    } 
+    // 3. If it's already a defined model object
+    else {
+      model = modelModule;
+    }
+
+    if (model && model.name) {
+      db[model.name] = model;
+    }
   }
 });
 
-// Register associations after all models are loaded
+// Register model associations after all models are loaded
 if (fs.existsSync(path.join(__dirname, 'associations.js'))) {
   require('./associations')(db);
 }
 
-// Export the instance, class, and models
+// Export sequelize instance, class, and loaded models
 db.sequelize = sequelize;
 db.Sequelize = Sequelize;
 
