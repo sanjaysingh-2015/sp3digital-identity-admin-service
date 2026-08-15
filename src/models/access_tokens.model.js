@@ -3,7 +3,7 @@ module.exports = (sequelize, DataTypes) => {
     "AccessTokens",
     {
       access_token_id: {
-        type: DataTypes.BIGINT.UNSIGNED,
+        type: DataTypes.BIGINT,
         primaryKey: true,
         primaryKey: true,
         autoIncrement: true,
@@ -18,23 +18,23 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
       },
       user_id: {
-        type: DataTypes.BIGINT.UNSIGNED,
+        type: DataTypes.BIGINT,
         allowNull: true,
       },
       oauth_client_id: {
-        type: DataTypes.BIGINT.UNSIGNED,
+        type: DataTypes.BIGINT,
         allowNull: true,
       },
       api_client_id: {
-        type: DataTypes.BIGINT.UNSIGNED,
+        type: DataTypes.BIGINT,
         allowNull: true,
       },
       service_account_id: {
-        type: DataTypes.BIGINT.UNSIGNED,
+        type: DataTypes.BIGINT,
         allowNull: true,
       },
       session_id: {
-        type: DataTypes.BIGINT.UNSIGNED,
+        type: DataTypes.BIGINT,
         allowNull: true,
       },
       token_type: {
@@ -69,7 +69,7 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: "ACTIVE",
       },
       created_by: {
-        type: DataTypes.BIGINT.UNSIGNED,
+        type: DataTypes.BIGINT,
         allowNull: true,
       },
       created_on: {
@@ -78,7 +78,7 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: DataTypes.NOW,
       },
       modified_by: {
-        type: DataTypes.BIGINT.UNSIGNED,
+        type: DataTypes.BIGINT,
         allowNull: true,
       },
       modified_on: {

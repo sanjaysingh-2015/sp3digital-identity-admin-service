@@ -1,10 +1,10 @@
-const { User, Role, UserRole } = require('../models');
+const { Users, Roles, UserRoles } = require('../models');
 const { v4: uuidv4 } = require('uuid');
 
 class UserService {
   // GET /api/v1/identity-admin/users
   async getUsers() {
-    const users = await User.findAll({
+    const users = await Users.findAll({
       attributes: [
         ['user_id', 'userId'],
         ['user_uuid', 'userUuid'],
@@ -23,7 +23,7 @@ class UserService {
 
   // GET /api/v1/identity-admin/users/:userId
   async getUserById(userId) {
-    const user = await User.findByPk(userId, {
+    const user = await Users.findByPk(userId, {
       attributes: [
         ['user_id', 'userId'],
         ['user_uuid', 'userUuid'],
@@ -46,7 +46,7 @@ class UserService {
     const userUuid = uuidv4();
     const { username, email, firstName, lastName, userType = 'USER' } = userData;
 
-    const newUser = await User.create({
+    const newUser = await Users.create({
       user_uuid: userUuid,
       username,
       email,
@@ -71,7 +71,7 @@ class UserService {
     // Verify user exists
     await this.getUserById(userId);
 
-    const userRole = await UserRole.create({
+    const userRole = await UserRoles.create({
       user_id: userId,
       role_id: roleId,
       effective_from: effectiveFrom,
@@ -88,7 +88,7 @@ class UserService {
 
   // GET /api/v1/identity-admin/users/:userId/roles
   async getUserRoles(userId) {
-    const userRoles = await UserRole.findAll({
+    const userRoles = await UserRoles.findAll({
       where: { user_id: userId },
       attributes: [
         ['user_role_id', 'userRoleId'],
@@ -96,7 +96,7 @@ class UserService {
       ],
       include: [
         {
-          model: Role,
+          model: Roles,
           attributes: [
             ['role_id', 'roleId'],
             ['role_code', 'roleCode'],

@@ -1,6 +1,5 @@
-// src/config/db.js
-const { Sequelize } = require('sequelize');
 require('dotenv').config();
+const { Sequelize } = require('sequelize');
 
 const sequelize = new Sequelize(
   process.env.DB_NAME || 'sp3digital_identity',
@@ -19,19 +18,5 @@ const sequelize = new Sequelize(
     }
   }
 );
-
-async function initDB() {
-  try {
-    await sequelize.authenticate();
-    console.log('MySQL Connection established successfully via Sequelize.');
-    await sequelize.sync({ alter: true });
-    console.log('Sequelize Models synchronized with Database.');
-  } catch (error) {
-    console.error('Unable to connect to MySQL database:', error.message);
-  }
-}
-
-// Attach initDB function directly to the instance
-sequelize.initDB = initDB;
 
 module.exports = sequelize;

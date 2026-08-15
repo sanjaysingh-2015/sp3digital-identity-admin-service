@@ -1,0 +1,13 @@
+const { AuditLog } = require('../models');
+
+class AuditService {
+  async getAuditLogs(limit = 100, offset = 0) {
+    return await AuditLog.findAll({
+      limit: Number(limit),
+      offset: Number(offset),
+      order: [['created_on', 'DESC']]
+    });
+  }
+}
+
+module.exports = new AuditService();

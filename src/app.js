@@ -2,36 +2,47 @@ const express = require('express');
 const cors = require('cors');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./config/swagger');
-
-const idpRoutes = require('./routes/idpRoutes');
-const userRoutes = require('./routes/userRoutes');
+const db = require('./models'); // Imports index.js which loads all models & sequelize
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-// Swagger Documentation Route
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-// Base API Routes
-app.use('/api/v1/identity-admin/identity-providers', idpRoutes);
-app.use('/api/v1/identity-admin/users', userRoutes);
-
-// Root health check route
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'UP' });
-});
+// Base routes
+app.use('/api/v1/identity-admin/identity-providers', require('./routes/idpRoutes'));
+app.use('/api/v1/identity-admin/users', require('./routes/userRoutes'));
+app.use('/api/v1/identity-admin/authorization', require('./routes/authorizationRoutes'));
+app.use('/api/v1/identity-admin/oauth', require('./routes/oAuthClientRoutes'));
+app.use('/api/v1/identity-admin/security-policy', require('./routes/securityPolicyRoutes'));
+app.use('/api/v1/identity-admin/users/:userId/mfa', require('./routes/mfaRoutes'));
+app.use('/api/v1/identity-admin', require('./routes/sessionRoutes'));
+app.use('/api/v1/identity-admin', require('./routes/accessControlRoutes'));
+app.use('/api/v1/identity-admin/service-accounts', require('./routes/serviceAccountRoutes'));
+app.use('/api/v1/identity-admin/audit-logs', require('./routes/auditRoutes'));
 
 const PORT = process.env.PORT || 3000;
 
-// Keep the event loop active by starting the server
-const server = app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Swagger docs available at http://localhost:${PORT}/docs`);
-});
+// Initialize Database and Start App
+async function startServer() {
+  try {
+    await db.sequelize.authenticate();
+    console.log('MySQL Connection established successfully via Sequelize.');
 
-// Handle unhandled rejections or runtime crashes
-process.on('unhandledRejection', (err) => {
-  console.error('Unhandled Rejection Error:', err);
-});
+    // Sync database models
+    await db.sequelize.sync({ alter: false }); 
+    console.log('Sequelize Models synchronized with Database.');
+
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+      console.log(`Swagger documentation available at http://localhost:${PORT}/docs`);
+    });
+  } catch (error) {
+    console.error(error);
+    console.error('Unable to connect to MySQL database:', error.message);
+  }
+}
+
+startServer();
