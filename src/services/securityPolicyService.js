@@ -1,14 +1,13 @@
-const { SecurityPolicy } = require('../models');
+const { AuthConfiguration } = require('../models');
 
 class SecurityPolicyService {
   async getActivePolicy() {
-    const policy = await SecurityPolicy.findOne({
+    const policy = await AuthConfiguration.findOne({
       where: { status: 'ACTIVE' },
-      order: [['created_on', 'DESC']]
+      order: [['config_id', 'DESC']]
     });
 
     if (!policy) {
-      // Default fallback policy
       return {
         minPasswordLength: 8,
         requireUppercase: true,
@@ -17,18 +16,20 @@ class SecurityPolicyService {
         tokenLifetimeMinutes: 60
       };
     }
+
     return policy;
   }
 
   async updatePolicy(policyData) {
-    const newPolicy = await SecurityPolicy.create({
-      min_password_length: policyData.minPasswordLength || 8,
-      require_uppercase: policyData.requireUppercase ?? true,
-      require_numbers: policyData.requireNumbers ?? true,
-      max_failed_attempts: policyData.maxFailedAttempts || 5,
-      token_lifetime_minutes: policyData.tokenLifetimeMinutes || 60,
+    const newPolicy = await AuthConfiguration.create({
+      tenant_uuid: policyData.tenantUuid || 'default-tenant',
+      allow_password_login: policyData.allowPasswordLogin ?? true,
+      allow_social_login: policyData.allowSocialLogin ?? true,
+      allow_mfa_enforcement: policyData.allowMfaEnforcement ?? false,
+      max_session_duration_minutes: policyData.tokenLifetimeMinutes || 480,
       status: 'ACTIVE'
     });
+
     return newPolicy;
   }
 }

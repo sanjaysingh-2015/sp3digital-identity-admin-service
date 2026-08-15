@@ -1,18 +1,16 @@
 const fs = require('fs');
 const path = require('path');
 const { Sequelize, DataTypes, Model } = require('sequelize');
-
-// Directly import the sequelize instance exported from db.js
 const sequelize = require('../config/db');
 
 const db = {};
 
+// Load all .model.js files dynamically
 fs.readdirSync(__dirname).forEach((file) => {
   if (file.endsWith('.model.js')) {
     const modelModule = require(path.join(__dirname, file));
 
     let model;
-
     if (typeof modelModule === 'function' && modelModule.prototype instanceof Model) {
       model = modelModule.init(modelModule.schema || {}, { sequelize });
     } else if (typeof modelModule === 'function') {
@@ -27,6 +25,7 @@ fs.readdirSync(__dirname).forEach((file) => {
   }
 });
 
+// Load associations after model registration
 if (fs.existsSync(path.join(__dirname, 'associations.js'))) {
   require('./associations')(db);
 }

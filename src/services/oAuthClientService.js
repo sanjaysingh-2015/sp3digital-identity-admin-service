@@ -1,10 +1,10 @@
-const { OAuthClient } = require('../models');
+const { OauthClients } = require('../models');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
 
 class OAuthClientService {
   async getClients() {
-    return await OAuthClient.findAll({
+    return await OauthClients.findAll({
       attributes: [
         ['oauth_client_id', 'id'],
         ['client_uuid', 'clientUuid'],
@@ -20,7 +20,7 @@ class OAuthClientService {
     const clientUuid = uuidv4();
     const rawSecret = crypto.randomBytes(32).toString('hex');
 
-    const newClient = await OAuthClient.create({
+    const newClient = await OauthClients.create({
       client_uuid: clientUuid,
       client_name: clientData.clientName,
       client_type: clientData.clientType || 'CONFIDENTIAL',
@@ -40,7 +40,7 @@ class OAuthClientService {
   }
 
   async revokeClient(clientId) {
-    const [affected] = await OAuthClient.update(
+    const [affected] = await OauthClients.update(
       { status: 'REVOKED' },
       { where: { oauth_client_id: clientId } }
     );

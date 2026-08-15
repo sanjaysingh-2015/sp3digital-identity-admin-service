@@ -1,8 +1,8 @@
-const { UserOrganization, UserFacility } = require('../models');
+const { OrganizationsUsers, FacilitiesUsers } = require('../models');
 
 class AccessControlService {
   async assignOrganization(userId, organizationId) {
-    return await UserOrganization.create({
+    return await OrganizationsUsers.create({
       user_id: userId,
       organization_id: organizationId,
       status: 'ACTIVE'
@@ -10,7 +10,7 @@ class AccessControlService {
   }
 
   async assignFacility(userId, facilityId) {
-    return await UserFacility.create({
+    return await FacilitiesUsers.create({
       user_id: userId,
       facility_id: facilityId,
       status: 'ACTIVE'
@@ -18,11 +18,11 @@ class AccessControlService {
   }
 
   async getUserOrganizations(userId) {
-    return await UserOrganization.findAll({ where: { user_id: userId } });
+    return await OrganizationsUsers.findAll({ where: { user_id: userId } });
   }
 
   async getUserFacilities(userId) {
-    return await UserFacility.findAll({ where: { user_id: userId } });
+    return await FacilitiesUsers.findAll({ where: { user_id: userId } });
   }
 }
 

@@ -6,7 +6,7 @@ class AuthConfigController {
       const config = await authConfigService.getConfigByTenant(req.params.tenantUuid);
       return res.status(200).json(config);
     } catch (error) {
-      next(error);
+      return res.status(404).json(error.message);
     }
   }
 

@@ -4,7 +4,7 @@ const controller = require('../controllers/authorizationController');
 
 /**
  * @openapi
- * /api/v1/identity-admin/roles:
+ * /api/v1/identity-admin/authorization/roles:
  *   get:
  *     summary: Retrieve all roles
  *     tags: [Authorization]
@@ -34,7 +34,7 @@ router.post('/roles', controller.createRole);
 
 /**
  * @openapi
- * /api/v1/identity-admin/permissions:
+ * /api/v1/identity-admin/authorization/permissions:
  *   get:
  *     summary: Retrieve system permissions and scopes
  *     tags: [Authorization]

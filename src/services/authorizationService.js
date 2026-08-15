@@ -1,8 +1,8 @@
-const { Role, Permission, RolePermission, sequelize } = require('../models');
+const { Roles, Permissions, RolePermissions, sequelize } = require('../models');
 
 class AuthorizationService {
   async getRoles() {
-    return await Role.findAll({
+    return await Roles.findAll({
       attributes: [
         ['role_id', 'roleId'],
         ['role_code', 'roleCode'],
@@ -14,7 +14,7 @@ class AuthorizationService {
   }
 
   async createRole(roleData) {
-    const role = await Role.create({
+    const role = await Roles.create({
       role_code: roleData.roleCode,
       role_name: roleData.roleName,
       description: roleData.description,
@@ -24,7 +24,7 @@ class AuthorizationService {
   }
 
   async getPermissions() {
-    return await Permission.findAll({
+    return await Permissions.findAll({
       attributes: [
         ['permission_id', 'permissionId'],
         ['permission_code', 'permissionCode'],
@@ -39,7 +39,7 @@ class AuthorizationService {
     const transaction = await sequelize.transaction();
     try {
       // Clear existing associations
-      await RolePermission.destroy({ where: { role_id: roleId }, transaction });
+      await RolePermissions.destroy({ where: { role_id: roleId }, transaction });
 
       // Bulk create new permission mappings
       const records = permissionIds.map(permId => ({
@@ -47,7 +47,7 @@ class AuthorizationService {
         permission_id: permId
       }));
 
-      await RolePermission.bulkCreate(records, { transaction });
+      await RolePermissions.bulkCreate(records, { transaction });
       await transaction.commit();
 
       return { roleId: Number(roleId), permissionsAssigned: permissionIds.length };
