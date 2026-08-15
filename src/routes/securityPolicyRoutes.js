@@ -1,6 +1,22 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/securityPolicyController');
+const { Joi, validate } = require('../middleware/validate');
+
+const policySchema = Joi.object({
+  minPasswordLength: Joi.number().integer().min(8).max(128),
+  requireUppercase: Joi.boolean(), requireLowercase: Joi.boolean(),
+  requireNumber: Joi.boolean(), requireSpecialCharacter: Joi.boolean(),
+  passwordHistoryCount: Joi.number().integer().min(0).max(24),
+  passwordMaxAgeDays: Joi.number().integer().min(1).max(3650).allow(null),
+  maxFailedAttempts: Joi.number().integer().min(1).max(20),
+  lockoutDurationMinutes: Joi.number().integer().min(1).max(1440),
+  accessTokenLifetimeMinutes: Joi.number().integer().min(5).max(1440),
+  refreshTokenLifetimeDays: Joi.number().integer().min(1).max(365),
+  maxSessionDurationMinutes: Joi.number().integer().min(5).max(43200),
+  maxConcurrentSessions: Joi.number().integer().min(1).max(100).allow(null),
+  mfaRequired: Joi.boolean()
+}).min(1);
 
 /**
  * @openapi
@@ -31,6 +47,6 @@ const controller = require('../controllers/securityPolicyController');
  *         description: Policy updated successfully
  */
 router.get('/', controller.getActivePolicy);
-router.post('/', controller.updatePolicy);
+router.post('/', validate(policySchema), controller.updatePolicy);
 
 module.exports = router;

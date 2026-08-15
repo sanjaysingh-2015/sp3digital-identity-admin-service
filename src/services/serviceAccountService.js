@@ -1,5 +1,6 @@
 const { ServiceAccounts } = require('../models');
 const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
 
 class ServiceAccountService {
   async getServiceAccounts() {
@@ -8,9 +9,12 @@ class ServiceAccountService {
 
   async createServiceAccount(data) {
     return await ServiceAccounts.create({
-      account_uuid: uuidv4(),
-      account_name: data.accountName,
+      service_uuid: uuidv4(),
+      service_code: data.serviceCode || `SA_${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
+      service_name: data.accountName,
       description: data.description,
+      organization_id: data.organizationId || null,
+      expires_on: data.expiresOn || null,
       status: 'ACTIVE'
     });
   }

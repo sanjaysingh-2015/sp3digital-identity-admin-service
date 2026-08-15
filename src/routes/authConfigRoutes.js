@@ -1,6 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/authConfigController');
+const { Joi, validate } = require('../middleware/validate');
+const { tenantMatchesPath } = require('../middleware/authentication');
+
+const authConfigSchema = Joi.object({
+  allowPasswordLogin: Joi.boolean(),
+  allowSocialLogin: Joi.boolean(),
+  allowMfaEnforcement: Joi.boolean(),
+  maxSessionDurationMinutes: Joi.number().integer().min(5).max(43_200)
+}).min(1);
 
 /**
  * @openapi
@@ -39,7 +48,7 @@ const controller = require('../controllers/authConfigController');
  *       200:
  *         description: Config updated successfully
  */
-router.get('/:tenantUuid', controller.getConfig);
-router.put('/:tenantUuid', controller.updateConfig);
+router.get('/:tenantUuid', tenantMatchesPath('tenantUuid'), controller.getConfig);
+router.put('/:tenantUuid', tenantMatchesPath('tenantUuid'), validate(authConfigSchema), controller.updateConfig);
 
 module.exports = router;

@@ -1,6 +1,18 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/apiClientController');
+const { Joi, validate } = require('../middleware/validate');
+
+const apiClientSchema = Joi.object({
+  clientName: Joi.string().trim().min(3).max(150).required(),
+  clientCode: Joi.string().trim().pattern(/^[A-Z0-9_]+$/).max(100),
+  description: Joi.string().trim().max(500).allow('', null),
+  clientType: Joi.string().valid('CONFIDENTIAL', 'PUBLIC').default('CONFIDENTIAL'),
+  organizationId: Joi.number().integer().positive(),
+  allowedIps: Joi.array().items(Joi.string().ip()).unique().max(100).default([]),
+  allowedOrigins: Joi.array().items(Joi.string().uri({ scheme: ['https'] })).unique().max(100).default([]),
+  expiresOn: Joi.date().iso().greater('now').allow(null)
+});
 
 /**
  * @openapi
@@ -30,7 +42,7 @@ const controller = require('../controllers/apiClientController');
  *         description: API client registered successfully
  */
 router.get('/', controller.getApiClients);
-router.post('/', controller.createApiClient);
+router.post('/', validate(apiClientSchema), controller.createApiClient);
 
 /**
  * @openapi

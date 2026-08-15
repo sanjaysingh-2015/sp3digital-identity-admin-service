@@ -21,6 +21,13 @@ class MfaController {
       return res.status(200).json(result);
     } catch (err) { next(err); }
   }
+
+  async verifyMfaMethod(req, res, next) {
+    try {
+      const result = await mfaService.verifyMfaMethod(req.params.userId, req.params.mfaId, req.body.code);
+      return res.status(200).json(result);
+    } catch (err) { next(err); }
+  }
 }
 
 module.exports = new MfaController();

@@ -1,6 +1,23 @@
 const express = require('express');
 const router = express.Router();
 const idpController = require('../controllers/idpController');
+const { Joi, validate } = require('../middleware/validate');
+
+const providerSchema = Joi.object({
+  code: Joi.string().trim().pattern(/^[A-Z0-9_]+$/).max(100).required(),
+  name: Joi.string().trim().max(150).required(),
+  type: Joi.string().valid('OIDC', 'SAML', 'AUTH0', 'OKTA', 'COGNITO', 'AZURE_AD').required(),
+  configuration: Joi.object({
+    issuerUrl: Joi.string().uri().allow('', null),
+    authorizationUrl: Joi.string().uri().allow('', null),
+    tokenUrl: Joi.string().uri().allow('', null),
+    jwksUrl: Joi.string().uri().allow('', null),
+    clientId: Joi.string().trim().max(255).allow('', null),
+    scopes: Joi.array().items(Joi.string().trim().max(100)).unique().max(50).default([])
+  }).default({})
+});
+
+const statusSchema = Joi.object({ status: Joi.string().valid('ACTIVE', 'INACTIVE').required() });
 
 /**
  * @swagger
@@ -69,7 +86,7 @@ const idpController = require('../controllers/idpController');
  *         description: Identity provider created successfully
  */
 router.get('/', idpController.getProviders);
-router.post('/', idpController.createProvider);
+router.post('/', validate(providerSchema), idpController.createProvider);
 
 /**
  * @swagger
@@ -118,6 +135,6 @@ router.post('/:id/test', idpController.testProvider);
  *       200:
  *         description: Provider status updated successfully
  */
-router.patch('/:id/status', idpController.updateStatus);
+router.patch('/:id/status', validate(statusSchema), idpController.updateStatus);
 
 module.exports = router;

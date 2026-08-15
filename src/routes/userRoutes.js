@@ -1,6 +1,23 @@
 const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/userController');
+const credentialController = require('../controllers/credentialController');
+const { Joi, validate, id } = require('../middleware/validate');
+
+const userSchema = Joi.object({
+  username: Joi.string().trim().min(3).max(100).required(),
+  email: Joi.string().email().max(320).required(),
+  firstName: Joi.string().trim().max(100).required(),
+  lastName: Joi.string().trim().max(100).required(),
+  userType: Joi.string().trim().max(50).default('USER')
+});
+
+const roleAssignmentSchema = Joi.object({
+  roleId: id,
+  effectiveFrom: Joi.date().iso().allow(null),
+  effectiveTo: Joi.date().iso().min(Joi.ref('effectiveFrom')).allow(null)
+});
+const passwordSchema = Joi.object({ password: Joi.string().min(8).max(256).required() });
 
 /**
  * @swagger
@@ -53,7 +70,7 @@ const userController = require('../controllers/userController');
  *         description: User created successfully
  */
 router.get('/', userController.getUsers);
-router.post('/', userController.createUser);
+router.post('/', validate(userSchema), userController.createUser);
 
 /**
  * @swagger
@@ -124,6 +141,7 @@ router.get('/:userId', userController.getUserById);
  *         description: Role assigned successfully
  */
 router.get('/:userId/roles', userController.getUserRoles);
-router.post('/:userId/roles', userController.assignRole);
+router.post('/:userId/roles', validate(roleAssignmentSchema), userController.assignRole);
+router.put('/:userId/password', validate(passwordSchema), credentialController.setPassword);
 
 module.exports = router;

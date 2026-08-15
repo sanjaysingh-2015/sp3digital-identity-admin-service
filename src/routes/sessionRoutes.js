@@ -1,6 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/sessionController');
+const { Joi, validate } = require('../middleware/validate');
+
+const userIdParams = Joi.object({ userId: Joi.number().integer().positive().required() });
+const sessionIdParams = Joi.object({ sessionId: Joi.number().integer().positive().required() });
 
 /**
  * @openapi
@@ -17,7 +21,7 @@ const controller = require('../controllers/sessionController');
  *       200:
  *         description: Active sessions
  */
-router.get('/users/:userId/sessions', controller.getActiveSessions);
+router.get('/users/:userId/sessions', validate(userIdParams, 'params'), controller.getActiveSessions);
 
 /**
  * @openapi
@@ -34,6 +38,6 @@ router.get('/users/:userId/sessions', controller.getActiveSessions);
  *       200:
  *         description: Session terminated
  */
-router.post('/sessions/:sessionId/revoke', controller.revokeSession);
+router.post('/sessions/:sessionId/revoke', validate(sessionIdParams, 'params'), controller.revokeSession);
 
 module.exports = router;

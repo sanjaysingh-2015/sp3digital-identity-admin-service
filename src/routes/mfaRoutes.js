@@ -1,6 +1,12 @@
 const express = require('express');
 const router = express.Router({ mergeParams: true });
 const controller = require('../controllers/mfaController');
+const { Joi, validate } = require('../middleware/validate');
+
+const mfaRegistrationSchema = Joi.object({
+  mfaType: Joi.string().valid('TOTP').required()
+});
+const mfaVerificationSchema = Joi.object({ code: Joi.string().pattern(/^\d{6}$/).required() });
 
 /**
  * @openapi
@@ -39,7 +45,8 @@ const controller = require('../controllers/mfaController');
  *         description: MFA registered successfully
  */
 router.get('/', controller.getUserMfaMethods);
-router.post('/', controller.registerMfaMethod);
+router.post('/', validate(mfaRegistrationSchema), controller.registerMfaMethod);
+router.post('/:mfaId/verify', validate(mfaVerificationSchema), controller.verifyMfaMethod);
 
 /**
  * @openapi

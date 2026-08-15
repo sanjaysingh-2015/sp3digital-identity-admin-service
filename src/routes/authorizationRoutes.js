@@ -1,6 +1,18 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/authorizationController');
+const { Joi, validate } = require('../middleware/validate');
+
+const roleSchema = Joi.object({
+  roleCode: Joi.string().trim().pattern(/^[A-Z0-9_]+$/).max(100).required(),
+  roleName: Joi.string().trim().max(150).required(),
+  description: Joi.string().trim().max(500).allow('', null),
+  status: Joi.string().valid('ACTIVE', 'INACTIVE').default('ACTIVE')
+});
+
+const permissionAssignmentSchema = Joi.object({
+  permissionIds: Joi.array().items(Joi.number().integer().positive()).unique().min(1).required()
+});
 
 /**
  * @openapi
@@ -30,7 +42,7 @@ const controller = require('../controllers/authorizationController');
  *         description: Role created successfully
  */
 router.get('/roles', controller.getRoles);
-router.post('/roles', controller.createRole);
+router.post('/roles', validate(roleSchema), controller.createRole);
 
 /**
  * @openapi
@@ -70,6 +82,6 @@ router.get('/permissions', controller.getPermissions);
  *       200:
  *         description: Permissions successfully assigned
  */
-router.post('/roles/:roleId/permissions', controller.assignPermissionsToRole);
+router.post('/roles/:roleId/permissions', validate(permissionAssignmentSchema), controller.assignPermissionsToRole);
 
 module.exports = router;

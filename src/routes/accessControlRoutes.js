@@ -1,6 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/accessControlController');
+const { Joi, validate } = require('../middleware/validate');
+
+const organizationSchema = Joi.object({ organizationId: Joi.number().integer().positive().required() });
+const facilitySchema = Joi.object({ facilityId: Joi.number().integer().positive().required() });
 
 /**
  * @openapi
@@ -25,7 +29,7 @@ const controller = require('../controllers/accessControlController');
  *       201:
  *         description: Organization access granted
  */
-router.post('/users/:userId/organizations', controller.assignOrganization);
+router.post('/users/:userId/organizations', validate(organizationSchema), controller.assignOrganization);
 
 /**
  * @openapi
@@ -50,6 +54,6 @@ router.post('/users/:userId/organizations', controller.assignOrganization);
  *       201:
  *         description: Facility access granted
  */
-router.post('/users/:userId/facilities', controller.assignFacility);
+router.post('/users/:userId/facilities', validate(facilitySchema), controller.assignFacility);
 
 module.exports = router;

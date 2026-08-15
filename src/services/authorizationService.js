@@ -44,7 +44,8 @@ class AuthorizationService {
       // Bulk create new permission mappings
       const records = permissionIds.map(permId => ({
         role_id: roleId,
-        permission_id: permId
+        permission_id: permId,
+        status: 'ACTIVE'
       }));
 
       await RolePermissions.bulkCreate(records, { transaction });

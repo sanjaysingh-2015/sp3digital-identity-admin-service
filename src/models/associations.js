@@ -1,32 +1,31 @@
 module.exports = (db) => {
   const {
-    User,
-    Role,
-    Permission,
-    UserRole,
-    RolePermission,
-    ApiClient,
-    ApiClientScope,
-    IdentityProvider,
-    ExternalIdentity,
-    UserSession,
-    AccessToken,
-    RefreshToken,
-    MfaMethod,
-    UserDevice,
-    UserCredential,
-    UserPreference,
-    OrganizationUser,
-    FacilityUser,
-    OAuthClient,
-    ServiceAccount
+    Users: User,
+    Roles: Role,
+    Permissions: Permission,
+    UserRoles: UserRole,
+    RolePermissions: RolePermission,
+    ApiClients: ApiClient,
+    ApiClientScopes: ApiClientScope,
+    IdentityProviders: IdentityProvider,
+    ExternalIdentities: ExternalIdentity,
+    UserSessions: UserSession,
+    AccessTokens: AccessToken,
+    RefreshTokens: RefreshToken,
+    MfaMethods: MfaMethod,
+    UserDevices: UserDevice,
+    UserCredentials: UserCredential,
+    UserPreferences: UserPreference,
+    OrganizationsUsers: OrganizationUser,
+    FacilitiesUsers: FacilityUser,
+    OauthClients: OAuthClient,
+    ServiceAccounts: ServiceAccount
   } = db;
 
   // ==========================================
   // 1. USER ASSOCIATIONS
   // ==========================================
   if (User) {
-    if (UserRole) User.hasMany(UserRole, { foreignKey: 'user_id' });
     if (UserSession) User.hasMany(UserSession, { foreignKey: 'user_id' });
     if (ExternalIdentity) User.hasMany(ExternalIdentity, { foreignKey: 'user_id' });
     if (MfaMethod) User.hasMany(MfaMethod, { foreignKey: 'user_id' });
@@ -40,7 +39,6 @@ module.exports = (db) => {
   }
 
   // Inverse User BelongsTo relationships
-  if (UserRole && User) UserRole.belongsTo(User, { foreignKey: 'user_id' });
   if (UserSession && User) UserSession.belongsTo(User, { foreignKey: 'user_id' });
   if (ExternalIdentity && User) ExternalIdentity.belongsTo(User, { foreignKey: 'user_id' });
   if (MfaMethod && User) MfaMethod.belongsTo(User, { foreignKey: 'user_id' });
@@ -53,57 +51,42 @@ module.exports = (db) => {
   // ==========================================
   // 2. ROLES & PERMISSIONS (MANY-TO-MANY)
   // ==========================================
-  if (Role && Permission && RolePermission) {
-    Role.belongsToMany(Permission, {
-      through: RolePermission,
-      foreignKey: 'role_id',
-      otherKey: 'permission_id'
-    });
-    Permission.belongsToMany(Role, {
-      through: RolePermission,
-      foreignKey: 'permission_id',
-      otherKey: 'role_id'
-    });
-  }
-
-  if (User && Role && UserRole) {
-    User.belongsToMany(Role, {
-      through: UserRole,
-      foreignKey: 'user_id',
-      otherKey: 'role_id'
-    });
-    Role.belongsToMany(User, {
-      through: UserRole,
-      foreignKey: 'role_id',
-      otherKey: 'user_id'
-    });
-  }
-
-  // Direct FK associations for junction models
+  // Explicit junction-model associations avoid ambiguous aliases and support
+  // direct includes such as UserRoles -> Roles.
   if (RolePermission) {
-    if (Role) RolePermission.belongsTo(Role, { foreignKey: 'role_id' });
-    if (Permission) RolePermission.belongsTo(Permission, { foreignKey: 'permission_id' });
+    if (Role) {
+      Role.hasMany(RolePermission, { foreignKey: 'role_id' });
+      RolePermission.belongsTo(Role, { foreignKey: 'role_id' });
+    }
+    if (Permission) {
+      Permission.hasMany(RolePermission, { foreignKey: 'permission_id' });
+      RolePermission.belongsTo(Permission, { foreignKey: 'permission_id' });
+    }
+  }
+
+  if (UserRole) {
+    if (User) {
+      User.hasMany(UserRole, { foreignKey: 'user_id' });
+      UserRole.belongsTo(User, { foreignKey: 'user_id' });
+    }
+    if (Role) {
+      Role.hasMany(UserRole, { foreignKey: 'role_id' });
+      UserRole.belongsTo(Role, { foreignKey: 'role_id' });
+    }
   }
 
   // ==========================================
   // 3. API CLIENTS & SCOPES
   // ==========================================
-  if (ApiClient && Permission && ApiClientScope) {
-    ApiClient.belongsToMany(Permission, {
-      through: ApiClientScope,
-      foreignKey: 'api_client_id',
-      otherKey: 'permission_id'
-    });
-    Permission.belongsToMany(ApiClient, {
-      through: ApiClientScope,
-      foreignKey: 'permission_id',
-      otherKey: 'api_client_id'
-    });
-  }
-
   if (ApiClientScope) {
-    if (ApiClient) ApiClientScope.belongsTo(ApiClient, { foreignKey: 'api_client_id' });
-    if (Permission) ApiClientScope.belongsTo(Permission, { foreignKey: 'permission_id' });
+    if (ApiClient) {
+      ApiClient.hasMany(ApiClientScope, { foreignKey: 'api_client_id' });
+      ApiClientScope.belongsTo(ApiClient, { foreignKey: 'api_client_id' });
+    }
+    if (Permission) {
+      Permission.hasMany(ApiClientScope, { foreignKey: 'permission_id' });
+      ApiClientScope.belongsTo(Permission, { foreignKey: 'permission_id' });
+    }
   }
 
   // ==========================================

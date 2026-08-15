@@ -1,6 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/serviceAccountController');
+const { Joi, validate } = require('../middleware/validate');
+
+const serviceAccountSchema = Joi.object({
+  accountName: Joi.string().trim().min(3).max(150).required(),
+  serviceCode: Joi.string().trim().pattern(/^[A-Z0-9_]+$/).max(100),
+  description: Joi.string().trim().max(500).allow('', null),
+  organizationId: Joi.number().integer().positive(),
+  expiresOn: Joi.date().iso().greater('now')
+});
 
 /**
  * @openapi
@@ -29,6 +38,6 @@ const controller = require('../controllers/serviceAccountController');
  *         description: Service account created
  */
 router.get('/', controller.getAccounts);
-router.post('/', controller.createAccount);
+router.post('/', validate(serviceAccountSchema), controller.createAccount);
 
 module.exports = router;

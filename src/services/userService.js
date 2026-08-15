@@ -52,7 +52,8 @@ class UserService {
       email,
       first_name: firstName,
       last_name: lastName,
-      user_type: userType
+      user_type: userType,
+      status: 'ACTIVE'
     });
 
     return {
@@ -75,7 +76,8 @@ class UserService {
       user_id: userId,
       role_id: roleId,
       effective_from: effectiveFrom,
-      effective_to: effectiveTo
+      effective_to: effectiveTo,
+      status: 'ACTIVE'
     });
 
     return {
