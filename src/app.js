@@ -22,6 +22,8 @@ app.use('/api/v1/identity-admin', require('./routes/sessionRoutes'));
 app.use('/api/v1/identity-admin', require('./routes/accessControlRoutes'));
 app.use('/api/v1/identity-admin/service-accounts', require('./routes/serviceAccountRoutes'));
 app.use('/api/v1/identity-admin/audit-logs', require('./routes/auditRoutes'));
+app.use('/api/v1/identity-admin/auth-configs', require('./routes/authConfigRoutes'));
+app.use('/api/v1/identity-admin/api-clients', require('./routes/apiClientRoutes'));
 
 const PORT = process.env.PORT || 3000;
 

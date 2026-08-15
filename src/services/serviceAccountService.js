@@ -1,13 +1,13 @@
-const { ServiceAccount } = require('../models');
+const { ServiceAccounts } = require('../models');
 const { v4: uuidv4 } = require('uuid');
 
 class ServiceAccountService {
   async getServiceAccounts() {
-    return await ServiceAccount.findAll();
+    return await ServiceAccounts.findAll();
   }
 
   async createServiceAccount(data) {
-    return await ServiceAccount.create({
+    return await ServiceAccounts.create({
       account_uuid: uuidv4(),
       account_name: data.accountName,
       description: data.description,

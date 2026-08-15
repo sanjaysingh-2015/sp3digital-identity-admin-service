@@ -1,8 +1,8 @@
-const { UserSession, AccessTokens } = require('../models');
+const { UserSessions, AccessTokens } = require('../models');
 
 class SessionService {
   async getActiveSessions(userId) {
-    return await UserSession.findAll({
+    return await UserSessions.findAll({
       where: { user_id: userId, status: 'ACTIVE' },
       attributes: [
         ['session_id', 'sessionId'],
@@ -15,7 +15,7 @@ class SessionService {
   }
 
   async revokeSession(sessionId) {
-    const [affected] = await UserSession.update(
+    const [affected] = await UserSessions.update(
       { status: 'REVOKED', revoked_on: new Date() },
       { where: { session_id: sessionId } }
     );

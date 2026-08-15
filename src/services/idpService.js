@@ -1,10 +1,10 @@
-const { IdentityProvider } = require('../models');
+const { IdentityProviders } = require('../models');
 const { v4: uuidv4 } = require('uuid');
 
-class IdentityProviderService {
+class IdentityProvidersService {
   // GET /api/v1/identity-admin/identity-providers
   async getAllProviders() {
-    const providers = await IdentityProvider.findAll({
+    const providers = await IdentityProviders.findAll({
       attributes: [
         ['identity_provider_id', 'id'],
         ['provider_uuid', 'uuid'],
@@ -28,7 +28,7 @@ class IdentityProviderService {
     const providerUuid = uuidv4();
     const { code, name, type, configuration } = data;
 
-    const newProvider = await IdentityProvider.create({
+    const newProvider = await IdentityProviders.create({
       provider_uuid: providerUuid,
       provider_code: code,
       provider_name: name,
@@ -54,7 +54,7 @@ class IdentityProviderService {
 
   // POST /api/v1/identity-admin/identity-providers/:id/test
   async testProvider(providerId) {
-    const provider = await IdentityProvider.findByPk(providerId);
+    const provider = await IdentityProviders.findByPk(providerId);
 
     if (!provider) {
       throw new Error('Identity provider not found');
@@ -75,7 +75,7 @@ class IdentityProviderService {
 
   // PATCH /api/v1/identity-admin/identity-providers/:id/status
   async updateStatus(providerId, status) {
-    const [affectedRows] = await IdentityProvider.update(
+    const [affectedRows] = await IdentityProviders.update(
       { status },
       { where: { identity_provider_id: providerId } }
     );
@@ -88,4 +88,4 @@ class IdentityProviderService {
   }
 }
 
-module.exports = new IdentityProviderService();
+module.exports = new IdentityProvidersService();
