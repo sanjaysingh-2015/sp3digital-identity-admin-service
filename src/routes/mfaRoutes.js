@@ -2,11 +2,15 @@ const express = require('express');
 const router = express.Router({ mergeParams: true });
 const controller = require('../controllers/mfaController');
 const { Joi, validate } = require('../middleware/validate');
+const { paginationQuerySchema } = require('../utils/pagination');
 
 const mfaRegistrationSchema = Joi.object({
   mfaType: Joi.string().valid('TOTP').required()
 });
 const mfaVerificationSchema = Joi.object({ code: Joi.string().pattern(/^\d{6}$/).required() });
+const mfaListQuerySchema = paginationQuerySchema({
+  status: Joi.string().valid('PENDING', 'ACTIVE', 'INACTIVE', 'REVOKED')
+});
 
 /**
  * @openapi
@@ -44,9 +48,12 @@ const mfaVerificationSchema = Joi.object({ code: Joi.string().pattern(/^\d{6}$/)
  *       201:
  *         description: MFA registered successfully
  */
-router.get('/', controller.getUserMfaMethods);
+router.get('/', validate(mfaListQuerySchema, 'query'), controller.getUserMfaMethods);
 router.post('/', validate(mfaRegistrationSchema), controller.registerMfaMethod);
 router.post('/:mfaId/verify', validate(mfaVerificationSchema), controller.verifyMfaMethod);
+router.post('/:mfaId/rotate', controller.rotateMfaSecret);
+router.patch('/:mfaId/deactivate', controller.deactivateMfaMethod);
+router.patch('/:mfaId/reactivate', controller.reactivateMfaMethod);
 
 /**
  * @openapi

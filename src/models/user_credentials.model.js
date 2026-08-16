@@ -40,6 +40,20 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING,
         allowNull: true,
       },
+      rotation_required: {
+        type: DataTypes.BOOLEAN,
+        allowNull: true,
+        defaultValue: false,
+      },
+      failed_verification_count: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        defaultValue: 0,
+      },
+      locked_until: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
       created_by: {
         type: DataTypes.BIGINT,
         allowNull: true,

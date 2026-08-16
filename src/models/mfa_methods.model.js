@@ -8,6 +8,10 @@ module.exports = (sequelize, DataTypes) => {
         primaryKey: true,
         autoIncrement: true,
       },
+      tenant_uuid: {
+        type: DataTypes.STRING(36),
+        allowNull: true,
+      },
       user_id: {
         type: DataTypes.BIGINT,
         allowNull: true,
@@ -22,6 +26,19 @@ module.exports = (sequelize, DataTypes) => {
       },
       secret_encrypted: {
         type: DataTypes.STRING,
+        allowNull: true,
+      },
+      secret_key_version: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      failed_verification_count: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        defaultValue: 0,
+      },
+      locked_until: {
+        type: DataTypes.DATE,
         allowNull: true,
       },
       is_primary: {

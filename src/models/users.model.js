@@ -12,6 +12,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING,
         allowNull: true,
       },
+      tenant_uuid: {
+        type: DataTypes.STRING(36),
+        allowNull: true,
+      },
       username: {
         type: DataTypes.STRING,
         allowNull: true,

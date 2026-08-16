@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/apiClientController');
-const { Joi, validate } = require('../middleware/validate');
+const { Joi, validate, id } = require('../middleware/validate');
+const { paginationQuerySchema } = require('../utils/pagination');
 
 const apiClientSchema = Joi.object({
   clientName: Joi.string().trim().min(3).max(150).required(),
@@ -13,6 +14,21 @@ const apiClientSchema = Joi.object({
   allowedOrigins: Joi.array().items(Joi.string().uri({ scheme: ['https'] })).unique().max(100).default([]),
   expiresOn: Joi.date().iso().greater('now').allow(null)
 });
+
+const apiClientUpdateSchema = Joi.object({
+  clientName: Joi.string().trim().min(3).max(150),
+  description: Joi.string().trim().max(500).allow('', null),
+  allowedIps: Joi.array().items(Joi.string().ip()).unique().max(100),
+  allowedOrigins: Joi.array().items(Joi.string().uri({ scheme: ['https'] })).unique().max(100),
+  expiresOn: Joi.date().iso().greater('now').allow(null)
+}).min(1);
+
+const listQuerySchema = paginationQuerySchema({
+  status: Joi.string().valid('ACTIVE', 'SUSPENDED', 'EXPIRED', 'REVOKED'),
+  clientType: Joi.string().valid('CONFIDENTIAL', 'PUBLIC'),
+  search: Joi.string().trim().max(150)
+});
+const idParamSchema = Joi.object({ id });
 
 /**
  * @openapi
@@ -41,8 +57,10 @@ const apiClientSchema = Joi.object({
  *       201:
  *         description: API client registered successfully
  */
-router.get('/', controller.getApiClients);
+router.get('/', validate(listQuerySchema, 'query'), controller.getApiClients);
 router.post('/', validate(apiClientSchema), controller.createApiClient);
+router.get('/:id', validate(idParamSchema, 'params'), controller.getApiClientById);
+router.patch('/:id', validate(idParamSchema, 'params'), validate(apiClientUpdateSchema), controller.updateApiClient);
 
 /**
  * @openapi
@@ -60,5 +78,24 @@ router.post('/', validate(apiClientSchema), controller.createApiClient);
  *         description: API key revoked successfully
  */
 router.patch('/:id/revoke', controller.revokeApiClient);
+
+/**
+ * @openapi
+ * /api/v1/identity-admin/api-clients/{id}/deactivate:
+ *   patch:
+ *     summary: Temporarily suspend an API client (reversible)
+ *     tags: [API Clients]
+ * /api/v1/identity-admin/api-clients/{id}/reactivate:
+ *   patch:
+ *     summary: Reactivate a suspended API client
+ *     tags: [API Clients]
+ * /api/v1/identity-admin/api-clients/{id}/rotate-secret:
+ *   post:
+ *     summary: Rotate the client secret; revokes tokens issued under the old secret
+ *     tags: [API Clients]
+ */
+router.patch('/:id/deactivate', controller.deactivateApiClient);
+router.patch('/:id/reactivate', controller.reactivateApiClient);
+router.post('/:id/rotate-secret', controller.rotateSecret);
 
 module.exports = router;

@@ -8,6 +8,10 @@ module.exports = (sequelize, DataTypes) => {
         primaryKey: true,
         autoIncrement: true,
       },
+      tenant_uuid: {
+        type: DataTypes.STRING(36),
+        allowNull: true,
+      },
       client_uuid: {
         type: DataTypes.STRING,
         allowNull: true,
@@ -49,6 +53,18 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true,
       },
       expires_on: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      secret_rotated_on: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      deactivated_on: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      revoked_on: {
         type: DataTypes.DATE,
         allowNull: true,
       },

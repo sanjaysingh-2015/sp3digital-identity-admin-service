@@ -3,6 +3,14 @@ const router = express.Router();
 const userController = require('../controllers/userController');
 const credentialController = require('../controllers/credentialController');
 const { Joi, validate, id } = require('../middleware/validate');
+const { paginationQuerySchema } = require('../utils/pagination');
+
+const userListQuerySchema = paginationQuerySchema({
+  status: Joi.string().valid('ACTIVE', 'INACTIVE', 'SUSPENDED'),
+  userType: Joi.string().trim().max(50),
+  search: Joi.string().trim().max(150)
+});
+const userRoleParamSchema = Joi.object({ userId: id, userRoleId: id });
 
 const userSchema = Joi.object({
   username: Joi.string().trim().min(3).max(100).required(),
@@ -18,6 +26,11 @@ const roleAssignmentSchema = Joi.object({
   effectiveTo: Joi.date().iso().min(Joi.ref('effectiveFrom')).allow(null)
 });
 const passwordSchema = Joi.object({ password: Joi.string().min(8).max(256).required() });
+const roleUpdateSchema = Joi.object({
+  status: Joi.string().valid('ACTIVE', 'INACTIVE'),
+  effectiveFrom: Joi.date().iso().allow(null),
+  effectiveTo: Joi.date().iso().min(Joi.ref('effectiveFrom')).allow(null)
+}).min(1);
 
 /**
  * @swagger
@@ -69,7 +82,7 @@ const passwordSchema = Joi.object({ password: Joi.string().min(8).max(256).requi
  *       201:
  *         description: User created successfully
  */
-router.get('/', userController.getUsers);
+router.get('/', validate(userListQuerySchema, 'query'), userController.getUsers);
 router.post('/', validate(userSchema), userController.createUser);
 
 /**
@@ -142,6 +155,29 @@ router.get('/:userId', userController.getUserById);
  */
 router.get('/:userId/roles', userController.getUserRoles);
 router.post('/:userId/roles', validate(roleAssignmentSchema), userController.assignRole);
+router.patch('/:userId/roles/:userRoleId', validate(userRoleParamSchema, 'params'), validate(roleUpdateSchema), userController.updateUserRole);
+
+/**
+ * @openapi
+ * /api/v1/identity-admin/users/{userId}/password:
+ *   put:
+ *     summary: Set/change a user's password
+ *     tags: [Credentials]
+ *   delete:
+ *     summary: Revoke the user's password credential (blocks password login)
+ *     tags: [Credentials]
+ * /api/v1/identity-admin/users/{userId}/password/rotate:
+ *   post:
+ *     summary: Administrative forced password rotation (flags rotation_required)
+ *     tags: [Credentials]
+ * /api/v1/identity-admin/users/{userId}/password/status:
+ *   get:
+ *     summary: Get password credential lifecycle status (expiry, lock, rotation flag)
+ *     tags: [Credentials]
+ */
 router.put('/:userId/password', validate(passwordSchema), credentialController.setPassword);
+router.post('/:userId/password/rotate', validate(passwordSchema), credentialController.rotatePassword);
+router.delete('/:userId/password', credentialController.revokeCredential);
+router.get('/:userId/password/status', credentialController.getCredentialStatus);
 
 module.exports = router;

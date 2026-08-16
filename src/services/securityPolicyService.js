@@ -1,4 +1,5 @@
 const { SecurityPolicies, sequelize } = require('../models');
+const { toSequelizePage, buildEnvelope } = require('../utils/pagination');
 
 const defaults = {
   minPasswordLength: 12, requireUppercase: true, requireLowercase: true,
@@ -69,6 +70,38 @@ class SecurityPolicyService {
 
       return toResponse(policy);
     });
+  }
+
+  /** Every version of the policy this tenant has ever had, most recent first, paginated. */
+  async getPolicyHistory(tenantUuid, { page, limit, status } = {}) {
+    const { limit: safeLimit, offset, page: safePage } = toSequelizePage({ page, limit });
+    const where = { tenant_uuid: tenantUuid };
+    if (status) where.status = status;
+
+    const result = await SecurityPolicies.findAndCountAll({
+      where,
+      order: [['policy_version', 'DESC']],
+      limit: safeLimit,
+      offset
+    });
+
+    return buildEnvelope(
+      { rows: result.rows.map(toResponse), count: result.count },
+      { page: safePage, limit: safeLimit }
+    );
+  }
+
+  /** A specific historical version, e.g. for showing "what changed" diffs. */
+  async getPolicyVersion(tenantUuid, version) {
+    const policy = await SecurityPolicies.findOne({ where: { tenant_uuid: tenantUuid, policy_version: version } });
+    if (!policy) {
+      const error = new Error(`Security policy version ${version} not found`);
+      error.statusCode = 404;
+      error.code = 'NOT_FOUND';
+      error.expose = true;
+      throw error;
+    }
+    return toResponse(policy);
   }
 }
 

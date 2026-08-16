@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/serviceAccountController');
-const { Joi, validate } = require('../middleware/validate');
+const { Joi, validate, id } = require('../middleware/validate');
+const { paginationQuerySchema } = require('../utils/pagination');
 
 const serviceAccountSchema = Joi.object({
   accountName: Joi.string().trim().min(3).max(150).required(),
@@ -11,33 +12,55 @@ const serviceAccountSchema = Joi.object({
   expiresOn: Joi.date().iso().greater('now')
 });
 
+const serviceAccountUpdateSchema = Joi.object({
+  accountName: Joi.string().trim().min(3).max(150),
+  description: Joi.string().trim().max(500).allow('', null),
+  expiresOn: Joi.date().iso().greater('now').allow(null)
+}).min(1);
+
+const listQuerySchema = paginationQuerySchema({
+  status: Joi.string().valid('ACTIVE', 'SUSPENDED', 'EXPIRED', 'REVOKED'),
+  search: Joi.string().trim().max(150)
+});
+const idParamSchema = Joi.object({ id });
+
 /**
  * @openapi
  * /api/v1/identity-admin/service-accounts:
  *   get:
- *     summary: List service accounts
+ *     summary: List service accounts (paginated, filterable)
  *     tags: [Service Accounts]
- *     responses:
- *       200:
- *         description: List of backend service identities
  *   post:
- *     summary: Create new Service Account
+ *     summary: Create new Service Account (provisions a backing API client)
  *     tags: [Service Accounts]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [accountName]
- *             properties:
- *               accountName: { type: string, example: "Analytics-Sync-Service" }
- *               description: { type: string, example: "Machine-to-machine sync service" }
- *     responses:
- *       201:
- *         description: Service account created
  */
-router.get('/', controller.getAccounts);
+router.get('/', validate(listQuerySchema, 'query'), controller.getAccounts);
 router.post('/', validate(serviceAccountSchema), controller.createAccount);
+router.get('/:id', validate(idParamSchema, 'params'), controller.getAccountById);
+router.patch('/:id', validate(idParamSchema, 'params'), validate(serviceAccountUpdateSchema), controller.updateAccount);
+
+/**
+ * @openapi
+ * /api/v1/identity-admin/service-accounts/{id}/deactivate:
+ *   patch:
+ *     summary: Temporarily suspend a service account (reversible)
+ *     tags: [Service Accounts]
+ * /api/v1/identity-admin/service-accounts/{id}/reactivate:
+ *   patch:
+ *     summary: Reactivate a suspended service account
+ *     tags: [Service Accounts]
+ * /api/v1/identity-admin/service-accounts/{id}/revoke:
+ *   patch:
+ *     summary: Permanently revoke a service account and its backing client
+ *     tags: [Service Accounts]
+ * /api/v1/identity-admin/service-accounts/{id}/rotate-secret:
+ *   post:
+ *     summary: Rotate the backing API client's secret; revokes outstanding tokens
+ *     tags: [Service Accounts]
+ */
+router.patch('/:id/deactivate', controller.deactivateAccount);
+router.patch('/:id/reactivate', controller.reactivateAccount);
+router.patch('/:id/revoke', controller.revokeAccount);
+router.post('/:id/rotate-secret', controller.rotateSecret);
 
 module.exports = router;

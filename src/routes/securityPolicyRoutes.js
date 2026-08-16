@@ -1,7 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/securityPolicyController');
-const { Joi, validate } = require('../middleware/validate');
+const { Joi, validate, id } = require('../middleware/validate');
+const { paginationQuerySchema } = require('../utils/pagination');
+
+const historyQuerySchema = paginationQuerySchema({
+  status: Joi.string().valid('ACTIVE', 'INACTIVE')
+});
 
 const policySchema = Joi.object({
   minPasswordLength: Joi.number().integer().min(8).max(128),
@@ -48,5 +53,19 @@ const policySchema = Joi.object({
  */
 router.get('/', controller.getActivePolicy);
 router.post('/', validate(policySchema), controller.updatePolicy);
+
+/**
+ * @openapi
+ * /api/v1/identity-admin/security-policy/history:
+ *   get:
+ *     summary: List all historical versions of the tenant's security policy (paginated)
+ *     tags: [Security Policy]
+ * /api/v1/identity-admin/security-policy/history/{version}:
+ *   get:
+ *     summary: Get a specific historical version of the security policy
+ *     tags: [Security Policy]
+ */
+router.get('/history', validate(historyQuerySchema, 'query'), controller.getPolicyHistory);
+router.get('/history/:version', validate(Joi.object({ version: id }), 'params'), controller.getPolicyVersion);
 
 module.exports = router;
