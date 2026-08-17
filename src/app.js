@@ -5,6 +5,8 @@ const swaggerSpec = require('./config/swagger');
 const db = require('./models'); // Imports index.js which loads all models & sequelize
 const { authenticate, authorize } = require('./middleware/authentication');
 const { auditWrites } = require('./middleware/audit');
+const authController = require('./controllers/authController');
+const tenantController = require('./controllers/tenantController');
 
 const app = express();
 
@@ -13,18 +15,16 @@ app.use(express.json());
 
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-// Public: JWKS for verifying tokens this service issues, and the endpoints
-// that issue those tokens in the first place. These must NOT go through the
-// authenticate/authorize middleware below — a caller has no token yet.
-app.use('/.well-known', require('./routes/wellKnownRoutes'));
-app.use('/api/v1/identity-admin/auth', require('./routes/authRoutes'));
-
 const authorizeAdminRequest = (req, res, next) => {
   const permission = req.method === 'GET' || req.method === 'HEAD'
     ? 'identity-admin:read'
     : 'identity-admin:write';
   return authorize(permission)(req, res, next);
 };
+
+app.post('/api/v1/identity-admin/auth/login', authController.login)
+app.post('/api/v1/identity-admin/auth/change-password', authController.changePassword);
+app.get('/api/v1/identity-admin/tenants/search', tenantController.searchTenants);
 
 app.use('/api/v1/identity-admin', authenticate, authorizeAdminRequest, auditWrites);
 

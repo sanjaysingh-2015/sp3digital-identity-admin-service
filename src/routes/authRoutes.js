@@ -3,7 +3,6 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const controller = require('../controllers/authController');
 const { Joi, validate } = require('../middleware/validate');
-const { authenticate, authorize } = require('../middleware/authentication');
 
 /**
  * These endpoints are how a caller *gets* a token in the first place, so
@@ -46,21 +45,15 @@ const changePasswordSchema = Joi.object({
 });
 
 /**
- * forceChange=true skips old-password verification entirely, so it must
- * never be reachable anonymously — this route sits in the otherwise-public
- * authRoutes.js, so the auth check has to be applied per-route rather than
- * inherited from app.js's blanket middleware. Self-service changes
- * (forceChange=false/absent) fall through untouched: they're protected by
- * requiring the correct oldPassword instead.
+ * ⚠️ SECURITY NOTE: forceChange=true is fully public — no authentication is
+ * required. Anyone who knows a user's usernameOrEmail + tenantUuid can set
+ * that user's password with zero proof of identity. This was an explicit,
+ * deliberate choice (not the original design — see git history) and should
+ * be revisited before this service handles real user accounts. At minimum,
+ * consider replacing this with a proper reset-token flow (emailed/SMS'd
+ * short-lived token proving inbox/phone ownership) rather than leaving
+ * password-reset fully open on the network.
  */
-function requireAdminIfForceChange(req, res, next) {
-  if (req.body?.forceChange !== true) return next();
-
-  return authenticate(req, res, (err) => {
-    if (err) return next(err);
-    return authorize('identity-admin:write')(req, res, next);
-  });
-}
 
 /**
  * @openapi
@@ -123,18 +116,15 @@ router.post('/logout', validate(refreshSchema), controller.logout);
  *   post:
  *     summary: >
  *       Sets a new password for a user identified by usernameOrEmail + tenantUuid.
- *       Self-service (forceChange omitted/false) requires oldPassword and is
- *       otherwise public, rate-limited the same as /login. Administrative
- *       reset (forceChange=true) skips oldPassword entirely but requires an
- *       authenticated caller with identity-admin:write permission.
+ *       Fully public — no authentication required for either mode.
+ *       Self-service (forceChange omitted/false) requires oldPassword to match.
+ *       forceChange=true skips oldPassword entirely (see security note above router.post below).
  *     tags: [Authentication]
  *     responses:
  *       200:
  *         description: "{ userId, passwordUpdated: true, forceChange, passwordExpiresOn, rotationRequired }"
  *       401:
- *         description: Invalid oldPassword, invalid/missing bearer token (forceChange=true), or account locked
- *       403:
- *         description: Authenticated but missing identity-admin:write permission (forceChange=true)
+ *         description: Invalid oldPassword or account locked (forceChange=false only)
  *       422:
  *         description: New password fails the tenant's security policy (complexity/reuse)
  */
@@ -142,7 +132,6 @@ router.post(
   '/change-password',
   loginRateLimiter,
   validate(changePasswordSchema),
-  requireAdminIfForceChange,
   controller.changePassword
 );
 

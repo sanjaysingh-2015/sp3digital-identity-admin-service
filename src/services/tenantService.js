@@ -1,5 +1,5 @@
 const { Op } = require('sequelize');
-const IdentityTenants = require('../models');
+const { IdentityTenants } = require('../models');
 
 class TenantService {
   async searchByName(tenantName) {
@@ -8,12 +8,12 @@ class TenantService {
     };
 
     if (tenantName) {
-      whereClause.tenantName = {
+      whereClause.tenant_name = {
         [Op.like]: `%${tenantName.trim()}%`
       };
     }
 
-    const tenants = await IdentityTenant.findAll({
+    const tenants = await IdentityTenants.findAll({
       where: whereClause,
       attributes: [
         ['tenant_uuid', 'tenantUuid'],

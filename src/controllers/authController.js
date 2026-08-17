@@ -43,9 +43,10 @@ class AuthController {
   async changePassword(req, res, next) {
     try {
       const { usernameOrEmail, tenantUuid, oldPassword, newPassword, forceChange } = req.body;
-      // Only present when forceChange=true, since that's the only path that runs through authenticate/authorize first.
-      const actorUserId = req.auth?.userId;
-      const result = await authService.changePassword({ usernameOrEmail, tenantUuid, oldPassword, newPassword, forceChange, actorUserId });
+      // No authenticated caller for either mode now — req.auth does not exist on this
+      // fully-public route. authService.changePassword() falls back to the target
+      // user as their own actor when actorUserId is undefined.
+      const result = await authService.changePassword({ usernameOrEmail, tenantUuid, oldPassword, newPassword, forceChange });
       return res.status(200).json(result);
     } catch (error) { next(error); }
   }
