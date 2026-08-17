@@ -48,6 +48,37 @@ function toResponse(credential) {
 
 class CredentialService {
   /**
+   * Verifies a plaintext password against the user's active credential.
+   * Checks lock state up front, and records success/failure via
+   * clearFailedAttempts()/recordFailedAttempt() so lockout policy is
+   * enforced consistently regardless of caller (login, re-auth, etc).
+   */
+  async verifyPassword(userId, tenantUuid, password) {
+    const credential = await UserCredentials.findOne({
+      where: { user_id: userId, credential_type: 'PASSWORD', status: 'ACTIVE' }
+    });
+    if (!credential) throw authError('CREDENTIAL_NOT_SET', 'No active password credential for this user');
+
+    if (credential.locked_until && new Date(credential.locked_until).getTime() > Date.now()) {
+      throw authError('ACCOUNT_LOCKED', `Account is locked until ${new Date(credential.locked_until).toISOString()}`, 423);
+    }
+
+    const matches = await bcrypt.compare(password, credential.password_hash);
+    if (!matches) {
+      await this.recordFailedAttempt(userId, tenantUuid);
+      throw authError('INVALID_CREDENTIALS', 'Invalid username or password');
+    }
+
+    const expired = credential.password_expires_on && new Date(credential.password_expires_on).getTime() <= Date.now();
+    await this.clearFailedAttempts(userId);
+
+    return {
+      verified: true,
+      rotationRequired: Boolean(credential.rotation_required) || Boolean(expired)
+    };
+  }
+
+  /**
    * Sets/rotates a user's password. Enforces the tenant's active security
    * policy: complexity, reuse against passwordHistoryCount prior hashes,
    * and computes the next password_expires_on from passwordMaxAgeDays.
@@ -161,6 +192,14 @@ class CredentialService {
       { where: { user_id: userId, credential_type: 'PASSWORD', status: 'ACTIVE' } }
     );
   }
+}
+
+function authError(code, message, statusCode = 401) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  error.code = code;
+  error.expose = true;
+  return error;
 }
 
 function notFoundOrInactive() {

@@ -1,0 +1,733 @@
+diff --git a/.env.example b/.env.example
+index e6bd0fc..9f53c85 100644
+--- a/.env.example
++++ b/.env.example
+@@ -27,3 +27,27 @@ MFA_LOCKOUT_MINUTES=15
+ # Password hashing cost (bcrypt). 12 is a reasonable default; raise as hardware allows.
+ PASSWORD_BCRYPT_COST=12
+ 
++# --- Token issuance (/api/v1/identity-admin/auth/login etc.) ---
++# RS256 key pair this service uses to SIGN tokens it issues. Generate with:
++#   node -e "const{generateKeyPairSync}=require('crypto');const{publicKey,privateKey}=generateKeyPairSync('rsa',{modulusLength:2048});console.log(privateKey.export({type:'pkcs1',format:'pem'}));console.log(publicKey.export({type:'pkcs1',format:'pem'}))"
++# Either paste the PEM inline (with \n for newlines) or point to a mounted file via the _PATH variant.
++JWT_PRIVATE_KEY=
++JWT_PRIVATE_KEY_PATH=
++JWT_PUBLIC_KEY=
++JWT_PUBLIC_KEY_PATH=
++JWT_KEY_ID=v1
++JWT_ISSUER=https://idp.example.com/
++# If this service is acting as its own IdP, point ADMIN_JWKS_URL (above) at
++# this same service's /.well-known/jwks.json so authentication.js can verify
++# the tokens /auth/login issues.
++
++ACCESS_TOKEN_TTL_SECONDS=900
++ID_TOKEN_TTL_SECONDS=900
++REFRESH_TOKEN_TTL_DAYS=30
++
++# HS256 secret used only to sign the short-lived MFA challenge token between
++# POST /auth/login and POST /auth/login/mfa. Falls back to JWT_PRIVATE_KEY if unset.
++MFA_CHALLENGE_SECRET=replace_with_random_secret
++MFA_CHALLENGE_TTL_SECONDS=300
++
++
+diff --git a/src/app.js b/src/app.js
+index c43d089..ab517ae 100644
+--- a/src/app.js
++++ b/src/app.js
+@@ -13,6 +13,12 @@ app.use(express.json());
+ 
+ app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+ 
++// Public: JWKS for verifying tokens this service issues, and the endpoints
++// that issue those tokens in the first place. These must NOT go through the
++// authenticate/authorize middleware below — a caller has no token yet.
++app.use('/.well-known', require('./routes/wellKnownRoutes'));
++app.use('/api/v1/identity-admin/auth', require('./routes/authRoutes'));
++
+ const authorizeAdminRequest = (req, res, next) => {
+   const permission = req.method === 'GET' || req.method === 'HEAD'
+     ? 'identity-admin:read'
+diff --git a/src/controllers/authController.js b/src/controllers/authController.js
+new file mode 100644
+index 0000000..0e09202
+--- /dev/null
++++ b/src/controllers/authController.js
+@@ -0,0 +1,44 @@
++const authService = require('../services/authService');
++
++function clientMeta(req) {
++  return { ipAddress: req.ip, userAgent: req.headers['user-agent'] };
++}
++
++class AuthController {
++  async login(req, res, next) {
++    try {
++      const { usernameOrEmail, password, tenantUuid } = req.body;
++      const audience = process.env.ADMIN_JWT_AUDIENCE;
++      const result = await authService.login({ usernameOrEmail, password, tenantUuid, audience }, clientMeta(req));
++      return res.status(200).json(result);
++    } catch (error) { next(error); }
++  }
++
++  async completeMfaLogin(req, res, next) {
++    try {
++      const { mfaToken, code } = req.body;
++      const audience = process.env.ADMIN_JWT_AUDIENCE;
++      const result = await authService.completeMfaLogin({ mfaToken, code, audience }, clientMeta(req));
++      return res.status(200).json(result);
++    } catch (error) { next(error); }
++  }
++
++  async refresh(req, res, next) {
++    try {
++      const { refreshToken } = req.body;
++      const audience = process.env.ADMIN_JWT_AUDIENCE;
++      const result = await authService.refresh({ refreshToken, audience }, clientMeta(req));
++      return res.status(200).json(result);
++    } catch (error) { next(error); }
++  }
++
++  async logout(req, res, next) {
++    try {
++      const { refreshToken } = req.body;
++      const result = await authService.logout(refreshToken);
++      return res.status(200).json(result);
++    } catch (error) { next(error); }
++  }
++}
++
++module.exports = new AuthController();
+diff --git a/src/routes/authRoutes.js b/src/routes/authRoutes.js
+new file mode 100644
+index 0000000..be69f92
+--- /dev/null
++++ b/src/routes/authRoutes.js
+@@ -0,0 +1,93 @@
++const express = require('express');
++const router = express.Router();
++const rateLimit = require('express-rate-limit');
++const controller = require('../controllers/authController');
++const { Joi, validate } = require('../middleware/validate');
++
++/**
++ * These endpoints are how a caller *gets* a token in the first place, so
++ * (unlike every other route in this service) they must NOT go through
++ * authentication.js's bearer-token check. Brute-force protection instead
++ * comes from: this rate limiter (IP-based), plus the per-account lockout
++ * enforced inside credentialService/mfaService (failed_verification_count /
++ * locked_until), which survives even if the caller rotates IPs.
++ */
++const loginRateLimiter = rateLimit({
++  windowMs: 15 * 60 * 1000,
++  limit: 20,
++  standardHeaders: true,
++  legacyHeaders: false,
++  message: { code: 'RATE_LIMITED', message: 'Too many login attempts. Try again later.' }
++});
++
++const loginSchema = Joi.object({
++  usernameOrEmail: Joi.string().trim().min(3).max(150).required(),
++  password: Joi.string().min(1).max(256).required(),
++  tenantUuid: Joi.string().uuid().required()
++});
++
++const mfaLoginSchema = Joi.object({
++  mfaToken: Joi.string().required(),
++  code: Joi.string().pattern(/^\d{6}$/).required()
++});
++
++const refreshSchema = Joi.object({
++  refreshToken: Joi.string().required()
++});
++
++/**
++ * @openapi
++ * /api/v1/identity-admin/auth/login:
++ *   post:
++ *     summary: Authenticate with username/email + password. Returns tokens directly, or an MFA challenge if the user has MFA enrolled.
++ *     tags: [Authentication]
++ *     responses:
++ *       200:
++ *         description: >
++ *           Either { tokenType, accessToken, idToken, refreshToken, expiresIn }
++ *           or { mfaRequired: true, mfaToken, expiresIn } if MFA verification is needed next.
++ *       401:
++ *         description: Invalid credentials
++ *       423:
++ *         description: Account locked due to repeated failed attempts
++ */
++router.post('/login', loginRateLimiter, validate(loginSchema), controller.login);
++
++/**
++ * @openapi
++ * /api/v1/identity-admin/auth/login/mfa:
++ *   post:
++ *     summary: Completes login by exchanging an MFA challenge token + TOTP code for real tokens.
++ *     tags: [Authentication]
++ *     responses:
++ *       200:
++ *         description: "{ tokenType, accessToken, idToken, refreshToken, expiresIn }"
++ *       401:
++ *         description: Invalid code or expired/invalid challenge
++ */
++router.post('/login/mfa', loginRateLimiter, validate(mfaLoginSchema), controller.completeMfaLogin);
++
++/**
++ * @openapi
++ * /api/v1/identity-admin/auth/token/refresh:
++ *   post:
++ *     summary: Exchanges a refresh token for a new access/id/refresh token triad. Refresh tokens are single-use (rotated on every call).
++ *     tags: [Authentication]
++ *     responses:
++ *       200:
++ *         description: "{ tokenType, accessToken, idToken, refreshToken, expiresIn }"
++ *       401:
++ *         description: Refresh token invalid, expired, or already used (reuse revokes the session)
++ */
++router.post('/token/refresh', loginRateLimiter, validate(refreshSchema), controller.refresh);
++
++/**
++ * @openapi
++ * /api/v1/identity-admin/auth/logout:
++ *   post:
++ *     summary: Revokes a refresh token and its session. Idempotent.
++ *     tags: [Authentication]
++ */
++router.post('/logout', validate(refreshSchema), controller.logout);
++
++module.exports = router;
+diff --git a/src/routes/wellKnownRoutes.js b/src/routes/wellKnownRoutes.js
+new file mode 100644
+index 0000000..16a1558
+--- /dev/null
++++ b/src/routes/wellKnownRoutes.js
+@@ -0,0 +1,23 @@
++const express = require('express');
++const router = express.Router();
++const tokenService = require('../security/tokenService');
++
++/**
++ * @openapi
++ * /.well-known/jwks.json:
++ *   get:
++ *     summary: Public JSON Web Key Set for verifying tokens issued by this service's /auth endpoints.
++ *     tags: [Authentication]
++ *     responses:
++ *       200:
++ *         description: RFC 7517 JWK Set containing the current signing key's public half.
++ */
++router.get('/jwks.json', (req, res, next) => {
++  try {
++    return res.status(200).json(tokenService.getJwks());
++  } catch (error) {
++    return next(error);
++  }
++});
++
++module.exports = router;
+diff --git a/src/security/tokenService.js b/src/security/tokenService.js
+new file mode 100644
+index 0000000..2c46c3d
+--- /dev/null
++++ b/src/security/tokenService.js
+@@ -0,0 +1,141 @@
++const crypto = require('crypto');
++const jwt = require('jsonwebtoken');
++
++/**
++ * This service makes the identity-admin-service capable of *issuing* tokens
++ * (RS256, so the existing authentication.js JWKS verifier can validate them
++ * without any changes — see routes/wellKnownRoutes.js which exposes the
++ * public half of this same key pair at /.well-known/jwks.json).
++ *
++ * Configure via:
++ *   JWT_PRIVATE_KEY   PEM-encoded RSA private key (use \n for newlines, or mount as a file and set JWT_PRIVATE_KEY_PATH)
++ *   JWT_PUBLIC_KEY    PEM-encoded RSA public key (matching JWT_PRIVATE_KEY_PATH set instead)
++ *   JWT_KEY_ID         stable "kid" so token headers can be matched against the JWKS
++ *   JWT_ISSUER         issuer claim; should match ADMIN_JWT_ISSUER so tokens verify against themselves
++ *   ACCESS_TOKEN_TTL_SECONDS   default 900 (15 min)
++ *   ID_TOKEN_TTL_SECONDS       default 900 (15 min)
++ *   REFRESH_TOKEN_TTL_DAYS     default 30
++ */
++
++function loadPem(envVar, pathEnvVar) {
++  const inline = process.env[envVar];
++  if (inline) return inline.includes('\\n') ? inline.replace(/\\n/g, '\n') : inline;
++
++  const filePath = process.env[pathEnvVar];
++  if (filePath) return require('fs').readFileSync(filePath, 'utf8');
++
++  throw new Error(`Neither ${envVar} nor ${pathEnvVar} is configured`);
++}
++
++function privateKey() {
++  return loadPem('JWT_PRIVATE_KEY', 'JWT_PRIVATE_KEY_PATH');
++}
++
++function publicKey() {
++  return loadPem('JWT_PUBLIC_KEY', 'JWT_PUBLIC_KEY_PATH');
++}
++
++function keyId() {
++  return process.env.JWT_KEY_ID || 'default';
++}
++
++function issuer() {
++  return process.env.JWT_ISSUER || process.env.ADMIN_JWT_ISSUER || 'sp3digital-identity-admin-service';
++}
++
++function accessTokenTtlSeconds() {
++  return Number(process.env.ACCESS_TOKEN_TTL_SECONDS || 900);
++}
++
++function idTokenTtlSeconds() {
++  return Number(process.env.ID_TOKEN_TTL_SECONDS || 900);
++}
++
++function refreshTokenTtlDays() {
++  return Number(process.env.REFRESH_TOKEN_TTL_DAYS || 30);
++}
++
++/**
++ * The public JWK set, for /.well-known/jwks.json. Node's KeyObject#export
++ * gives us the JWK directly from the PEM; we just attach use/alg/kid.
++ */
++function getJwks() {
++  const keyObject = crypto.createPublicKey(publicKey());
++  const jwk = keyObject.export({ format: 'jwk' });
++  return { keys: [{ ...jwk, kid: keyId(), use: 'sig', alg: 'RS256' }] };
++}
++
++/**
++ * Access token: short-lived, authorizes API calls. Carries the claims
++ * authentication.js already expects (tenant_uuid, user_id, permissions).
++ */
++function signAccessToken({ userId, userUuid, tenantUuid, audience, permissions = [] }) {
++  return jwt.sign(
++    {
++      sub: userUuid,
++      user_id: userId,
++      tenant_uuid: tenantUuid,
++      permissions,
++      token_use: 'access'
++    },
++    privateKey(),
++    {
++      algorithm: 'RS256',
++      keyid: keyId(),
++      issuer: issuer(),
++      audience,
++      expiresIn: accessTokenTtlSeconds()
++    }
++  );
++}
++
++/**
++ * ID token: OIDC-style identity assertion about the authenticated user.
++ * Not used for authorization — callers should rely on the access token for that.
++ */
++function signIdToken({ userId, userUuid, tenantUuid, audience, email, username, firstName, lastName, mfaVerified }) {
++  return jwt.sign(
++    {
++      sub: userUuid,
++      user_id: userId,
++      tenant_uuid: tenantUuid,
++      email,
++      preferred_username: username,
++      given_name: firstName,
++      family_name: lastName,
++      amr: mfaVerified ? ['pwd', 'mfa'] : ['pwd'],
++      token_use: 'id'
++    },
++    privateKey(),
++    {
++      algorithm: 'RS256',
++      keyid: keyId(),
++      issuer: issuer(),
++      audience,
++      expiresIn: idTokenTtlSeconds()
++    }
++  );
++}
++
++/** Refresh tokens are opaque random strings, never JWTs — nothing to decode/leak, and easy to revoke server-side. */
++function generateRefreshToken() {
++  const raw = crypto.randomBytes(48).toString('base64url');
++  const hash = crypto.createHash('sha256').update(raw).digest('hex');
++  const expiresOn = new Date(Date.now() + refreshTokenTtlDays() * 24 * 60 * 60 * 1000);
++  return { raw, hash, expiresOn };
++}
++
++function hashRefreshToken(rawToken) {
++  return crypto.createHash('sha256').update(rawToken).digest('hex');
++}
++
++module.exports = {
++  getJwks,
++  signAccessToken,
++  signIdToken,
++  generateRefreshToken,
++  hashRefreshToken,
++  accessTokenTtlSeconds,
++  idTokenTtlSeconds,
++  refreshTokenTtlDays
++};
+diff --git a/src/services/authService.js b/src/services/authService.js
+new file mode 100644
+index 0000000..f0bec5f
+--- /dev/null
++++ b/src/services/authService.js
+@@ -0,0 +1,257 @@
++const jwt = require('jsonwebtoken');
++const { v4: uuidv4 } = require('uuid');
++const { Op } = require('sequelize');
++const { Users, UserRoles, Roles, RolePermissions, Permissions, UserSessions, RefreshTokens, sequelize } = require('../models');
++const credentialService = require('./credentialService');
++const mfaService = require('./mfaService');
++const securityPolicyService = require('./securityPolicyService');
++const tokenService = require('../security/tokenService');
++
++const MFA_CHALLENGE_AUDIENCE = 'mfa_challenge';
++const MFA_CHALLENGE_TTL_SECONDS = Number(process.env.MFA_CHALLENGE_TTL_SECONDS || 300);
++
++function authError(code, message, statusCode = 401) {
++  const error = new Error(message);
++  error.statusCode = statusCode;
++  error.code = code;
++  error.expose = true;
++  return error;
++}
++
++/** Same role -> permission resolution authentication.js's authorize() uses, so tokens carry claims that will actually pass authorization. */
++async function resolvePermissions(userId) {
++  const assignments = await UserRoles.findAll({
++    where: { user_id: userId, status: 'ACTIVE' },
++    include: [{
++      model: Roles,
++      required: true,
++      where: { status: 'ACTIVE' },
++      include: [{
++        model: RolePermissions,
++        required: true,
++        where: { status: 'ACTIVE' },
++        include: [{ model: Permissions, required: true, where: { status: 'ACTIVE' } }]
++      }]
++    }]
++  });
++
++  const permissions = new Set();
++  for (const assignment of assignments) {
++    for (const mapping of assignment.Role?.RolePermissions || []) {
++      if (mapping.Permission?.permission_code) permissions.add(mapping.Permission.permission_code);
++    }
++  }
++  return Array.from(permissions);
++}
++
++async function findLoginUser(usernameOrEmail, tenantUuid) {
++  return Users.findOne({
++    where: {
++      tenant_uuid: tenantUuid,
++      status: 'ACTIVE',
++      [Op.or]: [{ username: usernameOrEmail }, { email: usernameOrEmail }]
++    }
++  });
++}
++
++/** Creates the session row + signs/stores the token triad. Shared by direct login, MFA completion, and refresh. */
++async function issueTokens({ user, tenantUuid, audience, ipAddress, userAgent, mfaVerified }, transaction) {
++  const permissions = await resolvePermissions(user.user_id);
++  const now = new Date();
++
++  await user.update({ last_login_on: now, failed_login_count: 0, account_locked_until: null }, { transaction });
++
++  const session = await UserSessions.create(
++    {
++      session_uuid: uuidv4(),
++      user_id: user.user_id,
++      ip_address: ipAddress,
++      user_agent: userAgent,
++      login_method: mfaVerified ? 'PASSWORD_MFA' : 'PASSWORD',
++      created_on: now,
++      expires_on: new Date(now.getTime() + tokenService.refreshTokenTtlDays() * 24 * 60 * 60 * 1000),
++      last_activity_on: now,
++      status: 'ACTIVE'
++    },
++    { transaction }
++  );
++
++  const accessToken = tokenService.signAccessToken({
++    userId: user.user_id,
++    userUuid: user.user_uuid,
++    tenantUuid,
++    audience,
++    permissions
++  });
++
++  const idToken = tokenService.signIdToken({
++    userId: user.user_id,
++    userUuid: user.user_uuid,
++    tenantUuid,
++    audience,
++    email: user.email,
++    username: user.username,
++    firstName: user.first_name,
++    lastName: user.last_name,
++    mfaVerified
++  });
++
++  const { raw: refreshTokenRaw, hash: refreshTokenHash, expiresOn } = tokenService.generateRefreshToken();
++  await RefreshTokens.create(
++    {
++      token_uuid: uuidv4(),
++      token_hash: refreshTokenHash,
++      user_id: user.user_id,
++      session_id: session.session_id,
++      issued_on: now,
++      expires_on: expiresOn,
++      status: 'ACTIVE',
++      created_by: user.user_id,
++      created_on: now
++    },
++    { transaction }
++  );
++
++  return {
++    tokenType: 'Bearer',
++    accessToken,
++    idToken,
++    refreshToken: refreshTokenRaw,
++    expiresIn: tokenService.accessTokenTtlSeconds()
++  };
++}
++
++class AuthService {
++  /**
++   * Step 1 of login. Verifies credentials; if the user has an active MFA
++   * method, returns an MFA challenge instead of tokens. Never reveals
++   * whether the failure was a bad username vs. bad password.
++   */
++  async login({ usernameOrEmail, password, tenantUuid, audience }, { ipAddress, userAgent } = {}) {
++    const user = await findLoginUser(usernameOrEmail, tenantUuid);
++    if (!user) throw authError('INVALID_CREDENTIALS', 'Invalid username or password');
++
++    await credentialService.verifyPassword(user.user_id, tenantUuid, password); // throws on bad password / lockout
++
++    const policy = await securityPolicyService.getActivePolicy(tenantUuid);
++    const hasMfa = await mfaService.hasActiveMfa(user.user_id);
++
++    if (policy.mfaRequired && !hasMfa) {
++      throw authError('MFA_ENROLLMENT_REQUIRED', 'This tenant requires MFA; enroll a method before logging in', 403);
++    }
++
++    if (hasMfa) {
++      const mfaToken = jwt.sign(
++        { sub: user.user_uuid, user_id: user.user_id, tenant_uuid: tenantUuid, token_use: 'mfa_challenge' },
++        mfaChallengeSecret(),
++        { algorithm: 'HS256', audience: MFA_CHALLENGE_AUDIENCE, expiresIn: MFA_CHALLENGE_TTL_SECONDS }
++      );
++      return { mfaRequired: true, mfaToken, expiresIn: MFA_CHALLENGE_TTL_SECONDS };
++    }
++
++    return sequelize.transaction((transaction) =>
++      issueTokens({ user, tenantUuid, audience, ipAddress, userAgent, mfaVerified: false }, transaction)
++    );
++  }
++
++  /** Step 2 of login when MFA is required: exchanges the challenge + TOTP code for real tokens. */
++  async completeMfaLogin({ mfaToken, code, audience }, { ipAddress, userAgent } = {}) {
++    let claims;
++    try {
++      claims = jwt.verify(mfaToken, mfaChallengeSecret(), { algorithms: ['HS256'], audience: MFA_CHALLENGE_AUDIENCE });
++    } catch {
++      throw authError('INVALID_MFA_CHALLENGE', 'MFA challenge is invalid or expired');
++    }
++
++    const user = await Users.findByPk(claims.user_id);
++    if (!user || user.status !== 'ACTIVE') throw authError('INVALID_CREDENTIALS', 'Invalid username or password');
++
++    await mfaService.verifyLoginCode(user.user_id, code); // throws on bad/expired code, enforces lockout
++
++    return sequelize.transaction((transaction) =>
++      issueTokens({ user, tenantUuid: claims.tenant_uuid, audience, ipAddress, userAgent, mfaVerified: true }, transaction)
++    );
++  }
++
++  /**
++   * Rotates a refresh token: the presented token is single-use. Reuse of an
++   * already-consumed token is treated as theft and revokes the whole session.
++   */
++  async refresh({ refreshToken, audience }, { ipAddress, userAgent } = {}) {
++    const tokenHash = tokenService.hashRefreshToken(refreshToken);
++
++    return sequelize.transaction(async (transaction) => {
++      const record = await RefreshTokens.findOne({ where: { token_hash: tokenHash }, transaction, lock: transaction.LOCK.UPDATE });
++      if (!record) throw authError('INVALID_GRANT', 'Refresh token is invalid');
++
++      if (record.status !== 'ACTIVE' || record.used_on) {
++        // Token reuse after rotation (or after revocation) — assume compromise, kill the whole session.
++        await RefreshTokens.update(
++          { status: 'REVOKED', revoked_on: new Date() },
++          { where: { session_id: record.session_id, status: { [Op.ne]: 'REVOKED' } }, transaction }
++        );
++        await UserSessions.update({ status: 'REVOKED', revoked_on: new Date() }, { where: { session_id: record.session_id }, transaction });
++        throw authError('REFRESH_TOKEN_REUSED', 'Refresh token has already been used; session revoked', 401);
++      }
++
++      if (new Date(record.expires_on).getTime() <= Date.now()) {
++        throw authError('INVALID_GRANT', 'Refresh token has expired');
++      }
++
++      const user = await Users.findByPk(record.user_id, { transaction });
++      if (!user || user.status !== 'ACTIVE') throw authError('INVALID_GRANT', 'User is no longer active');
++
++      const now = new Date();
++      await record.update({ used_on: now, status: 'REVOKED', revoked_on: now }, { transaction });
++
++      const permissions = await resolvePermissions(user.user_id);
++      const accessToken = tokenService.signAccessToken({
++        userId: user.user_id, userUuid: user.user_uuid, tenantUuid: user.tenant_uuid, audience, permissions
++      });
++      const idToken = tokenService.signIdToken({
++        userId: user.user_id, userUuid: user.user_uuid, tenantUuid: user.tenant_uuid, audience,
++        email: user.email, username: user.username, firstName: user.first_name, lastName: user.last_name, mfaVerified: true
++      });
++
++      const { raw: newRefreshRaw, hash: newRefreshHash, expiresOn } = tokenService.generateRefreshToken();
++      await RefreshTokens.create(
++        {
++          token_uuid: uuidv4(),
++          token_hash: newRefreshHash,
++          user_id: user.user_id,
++          session_id: record.session_id,
++          parent_token_id: record.refresh_token_id,
++          issued_on: now,
++          expires_on: expiresOn,
++          status: 'ACTIVE',
++          created_by: user.user_id,
++          created_on: now
++        },
++        { transaction }
++      );
++
++      await UserSessions.update({ last_activity_on: now, ip_address: ipAddress, user_agent: userAgent }, { where: { session_id: record.session_id }, transaction });
++
++      return { tokenType: 'Bearer', accessToken, idToken, refreshToken: newRefreshRaw, expiresIn: tokenService.accessTokenTtlSeconds() };
++    });
++  }
++
++  async logout(refreshToken) {
++    const tokenHash = tokenService.hashRefreshToken(refreshToken);
++    const record = await RefreshTokens.findOne({ where: { token_hash: tokenHash } });
++    if (!record) return { loggedOut: true }; // idempotent — already gone
++
++    const now = new Date();
++    await record.update({ status: 'REVOKED', revoked_on: now });
++    await UserSessions.update({ status: 'REVOKED', revoked_on: now }, { where: { session_id: record.session_id } });
++    return { loggedOut: true };
++  }
++}
++
++function mfaChallengeSecret() {
++  const secret = process.env.MFA_CHALLENGE_SECRET || process.env.JWT_PRIVATE_KEY;
++  if (!secret) throw new Error('MFA_CHALLENGE_SECRET (or JWT_PRIVATE_KEY) must be configured to issue MFA challenges');
++  return secret;
++}
++
++module.exports = new AuthService();
+diff --git a/src/services/credentialService.js b/src/services/credentialService.js
+index d9848f9..13912bf 100644
+--- a/src/services/credentialService.js
++++ b/src/services/credentialService.js
+@@ -47,6 +47,37 @@ function toResponse(credential) {
+ }
+ 
+ class CredentialService {
++  /**
++   * Verifies a plaintext password against the user's active credential.
++   * Checks lock state up front, and records success/failure via
++   * clearFailedAttempts()/recordFailedAttempt() so lockout policy is
++   * enforced consistently regardless of caller (login, re-auth, etc).
++   */
++  async verifyPassword(userId, tenantUuid, password) {
++    const credential = await UserCredentials.findOne({
++      where: { user_id: userId, credential_type: 'PASSWORD', status: 'ACTIVE' }
++    });
++    if (!credential) throw authError('CREDENTIAL_NOT_SET', 'No active password credential for this user');
++
++    if (credential.locked_until && new Date(credential.locked_until).getTime() > Date.now()) {
++      throw authError('ACCOUNT_LOCKED', `Account is locked until ${new Date(credential.locked_until).toISOString()}`, 423);
++    }
++
++    const matches = await bcrypt.compare(password, credential.password_hash);
++    if (!matches) {
++      await this.recordFailedAttempt(userId, tenantUuid);
++      throw authError('INVALID_CREDENTIALS', 'Invalid username or password');
++    }
++
++    const expired = credential.password_expires_on && new Date(credential.password_expires_on).getTime() <= Date.now();
++    await this.clearFailedAttempts(userId);
++
++    return {
++      verified: true,
++      rotationRequired: Boolean(credential.rotation_required) || Boolean(expired)
++    };
++  }
++
+   /**
+    * Sets/rotates a user's password. Enforces the tenant's active security
+    * policy: complexity, reuse against passwordHistoryCount prior hashes,
+@@ -163,6 +194,14 @@ class CredentialService {
+   }
+ }
+ 
++function authError(code, message, statusCode = 401) {
++  const error = new Error(message);
++  error.statusCode = statusCode;
++  error.code = code;
++  error.expose = true;
++  return error;
++}
++
+ function notFoundOrInactive() {
+   const error = new Error('Active user not found');
+   error.statusCode = 404;
+diff --git a/src/services/mfaService.js b/src/services/mfaService.js
+index fc0d018..f0f3d64 100644
+--- a/src/services/mfaService.js
++++ b/src/services/mfaService.js
+@@ -190,6 +190,34 @@ class MfaService {
+     await method.update({ secret_encrypted: payload, secret_key_version: keyVersion });
+     return { id: Number(mfaId), keyVersion };
+   }
++
++  /**
++   * Verifies a code against the user's primary (or first) ACTIVE MFA method
++   * during login — distinct from verifyMfaMethod(), which only consumes
++   * PENDING enrollments. Applies the same lockout counters.
++   */
++  async verifyLoginCode(userId, code) {
++    const method = await MfaMethods.findOne({
++      where: { user_id: userId, status: 'ACTIVE' },
++      order: [['is_primary', 'DESC'], ['created_on', 'ASC']]
++    });
++    if (!method) throw mfaError(409, 'MFA_NOT_ENROLLED', 'User has no active MFA method to verify against');
++    assertNotLocked(method);
++
++    if (!verifyCode(decrypt(method.secret_encrypted), code)) {
++      await registerFailedAttempt(method);
++      throw mfaError(401, 'INVALID_MFA_CODE', 'Invalid MFA verification code');
++    }
++
++    await method.update({ failed_verification_count: 0, locked_until: null, last_used_on: new Date() });
++    return { mfaId: Number(method.mfa_method_id) };
++  }
++
++  /** Whether a user has at least one usable (ACTIVE) MFA method. */
++  async hasActiveMfa(userId) {
++    const count = await MfaMethods.count({ where: { user_id: userId, status: 'ACTIVE' } });
++    return count > 0;
++  }
+ }
+ 
+ function assertNotLocked(method) {

@@ -13,6 +13,12 @@ app.use(express.json());
 
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
+// Public: JWKS for verifying tokens this service issues, and the endpoints
+// that issue those tokens in the first place. These must NOT go through the
+// authenticate/authorize middleware below — a caller has no token yet.
+app.use('/.well-known', require('./routes/wellKnownRoutes'));
+app.use('/api/v1/identity-admin/auth', require('./routes/authRoutes'));
+
 const authorizeAdminRequest = (req, res, next) => {
   const permission = req.method === 'GET' || req.method === 'HEAD'
     ? 'identity-admin:read'

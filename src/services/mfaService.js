@@ -190,6 +190,34 @@ class MfaService {
     await method.update({ secret_encrypted: payload, secret_key_version: keyVersion });
     return { id: Number(mfaId), keyVersion };
   }
+
+  /**
+   * Verifies a code against the user's primary (or first) ACTIVE MFA method
+   * during login — distinct from verifyMfaMethod(), which only consumes
+   * PENDING enrollments. Applies the same lockout counters.
+   */
+  async verifyLoginCode(userId, code) {
+    const method = await MfaMethods.findOne({
+      where: { user_id: userId, status: 'ACTIVE' },
+      order: [['is_primary', 'DESC'], ['created_on', 'ASC']]
+    });
+    if (!method) throw mfaError(409, 'MFA_NOT_ENROLLED', 'User has no active MFA method to verify against');
+    assertNotLocked(method);
+
+    if (!verifyCode(decrypt(method.secret_encrypted), code)) {
+      await registerFailedAttempt(method);
+      throw mfaError(401, 'INVALID_MFA_CODE', 'Invalid MFA verification code');
+    }
+
+    await method.update({ failed_verification_count: 0, locked_until: null, last_used_on: new Date() });
+    return { mfaId: Number(method.mfa_method_id) };
+  }
+
+  /** Whether a user has at least one usable (ACTIVE) MFA method. */
+  async hasActiveMfa(userId) {
+    const count = await MfaMethods.count({ where: { user_id: userId, status: 'ACTIVE' } });
+    return count > 0;
+  }
 }
 
 function assertNotLocked(method) {
