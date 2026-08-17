@@ -3,7 +3,9 @@ const authorizationService = require('../services/authorizationService');
 class AuthorizationController {
   async getRoles(req, res, next) {
     try {
-      const roles = await authorizationService.getRoles();
+      const { page, limit, status, userType, search } = req.query;
+      console.log({ page, limit, status, userType, search });
+      const roles = await authorizationService.getRoles({ page, limit, status, userType, search });
       return res.status(200).json(roles);
     } catch (error) {
       next(error);
