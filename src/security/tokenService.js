@@ -19,12 +19,29 @@ const jwt = require('jsonwebtoken');
 
 function loadPem(envVar, pathEnvVar) {
   const inline = process.env[envVar];
-  if (inline) return inline.includes('\\n') ? inline.replace(/\\n/g, '\n') : inline;
+
+  if (inline) {
+    return inline
+      .trim()
+      .replace(/^"(.*)"$/, '$1')
+      .replace(/\\n/g, '\n')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n');
+  }
 
   const filePath = process.env[pathEnvVar];
-  if (filePath) return require('fs').readFileSync(filePath, 'utf8');
 
-  throw new Error(`Neither ${envVar} nor ${pathEnvVar} is configured`);
+  if (filePath) {
+    return require('fs')
+      .readFileSync(filePath, 'utf8')
+      .trim()
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n');
+  }
+
+  throw new Error(
+    `Neither ${envVar} nor ${pathEnvVar} is configured`
+  );
 }
 
 function privateKey() {
@@ -55,14 +72,66 @@ function refreshTokenTtlDays() {
   return Number(process.env.REFRESH_TOKEN_TTL_DAYS || 30);
 }
 
+function validateKeys() {
+  try {
+    const privatePem = privateKey();
+    const publicPem = publicKey();
+
+    crypto.createPrivateKey(privatePem);
+    crypto.createPublicKey(publicPem);
+
+    return true;
+  } catch (error) {
+    console.error('JWT key validation failed:', error.message);
+    throw new Error(
+      `Invalid JWT RSA key configuration: ${error.message}`
+    );
+  }
+}
+
 /**
  * The public JWK set, for /.well-known/jwks.json. Node's KeyObject#export
  * gives us the JWK directly from the PEM; we just attach use/alg/kid.
  */
 function getJwks() {
-  const keyObject = crypto.createPublicKey(publicKey());
-  const jwk = keyObject.export({ format: 'jwk' });
-  return { keys: [{ ...jwk, kid: keyId(), use: 'sig', alg: 'RS256' }] };
+  const publicPem = publicKey();
+
+  if (!publicPem) {
+    throw new Error('JWT public key is not configured');
+  }
+
+  let keyObject;
+
+  try {
+    keyObject = crypto.createPublicKey({
+      key: publicPem,
+      format: 'pem',
+      type: 'spki'
+    });
+  } catch (error) {
+    console.error('Unable to parse JWT public key:', error.message);
+
+    throw new Error(
+      `Invalid JWT public key: ${error.message}`
+    );
+  }
+
+  const jwk = keyObject.export({
+    format: 'jwk'
+  });
+
+  return {
+    keys: [
+      {
+        kty: jwk.kty,
+        n: jwk.n,
+        e: jwk.e,
+        kid: keyId(),
+        use: 'sig',
+        alg: 'RS256'
+      }
+    ]
+  };
 }
 
 /**
@@ -137,5 +206,6 @@ module.exports = {
   hashRefreshToken,
   accessTokenTtlSeconds,
   idTokenTtlSeconds,
-  refreshTokenTtlDays
+  refreshTokenTtlDays,
+  validateKeys
 };

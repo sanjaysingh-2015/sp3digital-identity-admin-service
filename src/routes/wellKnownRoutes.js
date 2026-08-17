@@ -6,17 +6,33 @@ const tokenService = require('../security/tokenService');
  * @openapi
  * /.well-known/jwks.json:
  *   get:
- *     summary: Public JSON Web Key Set for verifying tokens issued by this service's /auth endpoints.
- *     tags: [Authentication]
+ *     summary: Public JSON Web Key Set
+ *     description: Returns the public RSA signing key used to verify JWTs issued by the Identity Admin Service.
+ *     tags:
+ *       - Authentication
  *     responses:
  *       200:
- *         description: RFC 7517 JWK Set containing the current signing key's public half.
+ *         description: RFC 7517 JSON Web Key Set
+ *       500:
+ *         description: Unable to generate JWKS
  */
-router.get('/jwks.json', (req, res, next) => {
+router.get('/jwks.json', (req, res) => {
   try {
-    return res.status(200).json(tokenService.getJwks());
+    const jwks = tokenService.getJwks();
+
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.setHeader('Content-Type', 'application/json');
+
+    return res.status(200).json(jwks);
   } catch (error) {
-    return next(error);
+    console.error('JWKS generation failed:', error);
+
+    return res.status(500).json({
+      error: {
+        code: 'JWKS_ERROR',
+        message: 'Unable to generate JWKS'
+      }
+    });
   }
 });
 

@@ -7,6 +7,7 @@ const { authenticate, authorize } = require('./middleware/authentication');
 const { auditWrites } = require('./middleware/audit');
 const authController = require('./controllers/authController');
 const tenantController = require('./controllers/tenantController');
+const wellKnownRoutes = require('./routes/wellKnownRoutes');
 
 const app = express();
 
@@ -14,6 +15,7 @@ app.use(cors());
 app.use(express.json());
 
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.use('/.well-known', wellKnownRoutes);
 
 const authorizeAdminRequest = (req, res, next) => {
   const permission = req.method === 'GET' || req.method === 'HEAD'
@@ -23,6 +25,7 @@ const authorizeAdminRequest = (req, res, next) => {
 };
 
 app.post('/api/v1/identity-admin/auth/login', authController.login)
+// app.get('/api/v1/identity-admin/.well-known/jwks.json', tokenService.getJwks);
 app.post('/api/v1/identity-admin/auth/change-password', authController.changePassword);
 app.get('/api/v1/identity-admin/tenants/search', tenantController.searchTenants);
 

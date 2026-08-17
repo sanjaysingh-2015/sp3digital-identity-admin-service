@@ -4,6 +4,7 @@ const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./src/config/swagger');
 //const routes = require('./src/routes/api');
 const { initDB } = require('./src/config/db');
+const tokenService = require('./security/tokenService');
 
 const app = express();
 app.use(express.json());
@@ -11,6 +12,9 @@ app.use(express.json());
 const cors = require('cors');
 app.use(cors());
 
+tokenService.validateKeys();
+
+console.log('JWT RSA keys loaded successfully');
 // Serve Swagger Interactive Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
