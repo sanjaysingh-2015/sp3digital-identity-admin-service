@@ -106,7 +106,6 @@ async function authenticate(req, res, next) {
       throw authError(401, "UNAUTHENTICATED", "A bearer token is required");
 
     const claims = await verifyToken(token);
-    console.log("Claims ===> ", claims);
 
     const tenantUuid = claims.tenant_uuid || claims.tenantUuid || claims.tid;
     if (!tenantUuid || typeof tenantUuid !== "string") {

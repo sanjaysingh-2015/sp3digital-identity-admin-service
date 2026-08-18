@@ -17,6 +17,10 @@ const userSchema = Joi.object({
   email: Joi.string().email().max(320).required(),
   firstName: Joi.string().trim().max(100).required(),
   lastName: Joi.string().trim().max(100).required(),
+  middleName: Joi.string().trim().max(100).allow("").optional(),
+  displayName: Joi.string().trim().max(100).required(),
+  phoneCountryCode: Joi.string().trim().max(5).required(),
+  phoneNumber: Joi.string().trim().max(20).required(),
   userType: Joi.string().trim().max(50).default('USER')
 });
 
@@ -84,6 +88,8 @@ const roleUpdateSchema = Joi.object({
  */
 router.get('/', validate(userListQuerySchema, 'query'), userController.getUsers);
 router.post('/', validate(userSchema), userController.createUser);
+router.patch('/:userId', validate(userSchema), userController.updateUser);
+router.patch('/:userId/status',  userController.deleteUser)
 
 /**
  * @swagger

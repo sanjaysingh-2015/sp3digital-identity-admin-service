@@ -1,26 +1,35 @@
-const { Users, Roles, UserRoles, sequelize } = require('../models');
-const { v4: uuidv4 } = require('uuid');
-const { Op } = require('sequelize');
-const { toSequelizePage, buildEnvelope } = require('../utils/pagination');
-const { notFound } = require('../utils/lifecycle');
+const { Users, Roles, UserRoles, sequelize } = require("../models");
+const { v4: uuidv4 } = require("uuid");
+const { Op } = require("sequelize");
+const { toSequelizePage, buildEnvelope } = require("../utils/pagination");
+const UuidUtil = require("../utils/uuid.util");
+const CodeUtil = require("../utils/code.util");
+const { STATUS, notFound, isExpired, effectiveStatus, assertMutable, assertNotRevoked } = require('../utils/lifecycle');
 
 const USER_ATTRIBUTES = [
-  ['user_id', 'userId'],
-  ['user_uuid', 'userUuid'],
-  'username',
-  'email',
-  ['first_name', 'firstName'],
-  ['middle_name', 'middleName'],
-  ['last_name', 'lastName'],
-  ['user_type', 'userType'],
-  'status',
-  ['created_on', 'createdOn']
+  ["user_id", "userId"],
+  ["user_uuid", "userUuid"],
+  "username",
+  "email",
+  ["first_name", "firstName"],
+  ["middle_name", "middleName"],
+  ["last_name", "lastName"],
+  ["user_type", "userType"],
+  ["display_name", "displayName"],
+  ["phone_country_code", "phoneCountryCode"],
+  ["phone_number", "phoneNumber"],
+  "status",
+  ["created_on", "createdOn"],
 ];
 
 class UserService {
   /** GET /api/v1/identity-admin/users — paginated + filterable (status, userType, search). */
   async getUsers(tenantUuid, { page, limit, status, userType, search } = {}) {
-    const { limit: safeLimit, offset, page: safePage } = toSequelizePage({ page, limit });
+    const {
+      limit: safeLimit,
+      offset,
+      page: safePage,
+    } = toSequelizePage({ page, limit });
     const where = {};
     if (tenantUuid) where.tenant_uuid = tenantUuid;
     if (status) where.status = status;
@@ -30,54 +39,76 @@ class UserService {
         { username: { [Op.like]: `%${search}%` } },
         { email: { [Op.like]: `%${search}%` } },
         { first_name: { [Op.like]: `%${search}%` } },
-        { last_name: { [Op.like]: `%${search}%` } }
+        { last_name: { [Op.like]: `%${search}%` } },
       ];
     }
 
     const result = await Users.findAndCountAll({
       where,
       attributes: USER_ATTRIBUTES,
-      order: [['created_on', 'DESC']],
+      order: [["created_on", "DESC"]],
       limit: safeLimit,
-      offset
+      offset,
     });
 
-    return buildEnvelope({ rows: result.rows, count: result.count }, { page: safePage, limit: safeLimit });
+    return buildEnvelope(
+      { rows: result.rows, count: result.count },
+      { page: safePage, limit: safeLimit },
+    );
   }
 
   async getUserById(userId) {
     const user = await Users.findByPk(userId, {
       attributes: [
-        ['user_id', 'userId'],
-        ['user_uuid', 'userUuid'],
-        'username',
-        'email',
-        ['first_name', 'firstName'],
-        ['last_name', 'lastName'],
-        'status'
-      ]
+        ["user_id", "userId"],
+        ["user_uuid", "userUuid"],
+        "username",
+        "email",
+        ["first_name", "firstName"],
+        ["last_name", "lastName"],
+        ["user_type", "userType"],
+        ["middle_name", "middleName"],
+        ["display_name", "displayName"],
+        ["phone_country_code", "phoneCountryCode"],
+        ["phone_number", "phoneNumber"],
+        "status",
+      ],
     });
 
-    if (!user) throw notFound('User');
+    if (!user) throw notFound("User");
     return user;
   }
 
   async createUser(userData, tenantUuid, actorUserId) {
     const userUuid = uuidv4();
-    const { username, email, firstName, lastName, userType = 'USER' } = userData;
+    const {
+      username,
+      email,
+      firstName,
+      lastName,
+      middleName,
+      displayName,
+      phoneCountryCode,
+      phoneNumber,
+      userType = "USER",
+    } = userData;
     const now = new Date();
 
     const newUser = await Users.create({
       tenant_uuid: tenantUuid,
-      user_uuid: userUuid,
+      user_uuid: UuidUtil.generate(),
       username,
       email,
       first_name: firstName,
       last_name: lastName,
       user_type: userType,
-      status: 'ACTIVE',
+      middle_name: middleName,
+      display_name: displayName,
+      phone_country_code: phoneCountryCode,
+      phone_number: phoneNumber,
+      status: "ACTIVE",
       created_by: actorUserId,
-      created_on: now
+      created_on: now,
     });
 
     return {
@@ -85,14 +116,52 @@ class UserService {
       userUuid: newUser.user_uuid,
       username: newUser.username,
       email: newUser.email,
+      userType: newUser.user_type,
       firstName: newUser.first_name,
       lastName: newUser.last_name,
-      status: newUser.status || 'ACTIVE'
+      displayName: newUser.display_name,
+      phoneCountryCode: newUser.phone_country_code,
+      phoneNumber: newUser.phone_number,
+      middleName: newUser.middle_name,
+      status: newUser.status || "ACTIVE",
     };
   }
 
+  async updateUser(userId, userData, actorUserId) {
+    const user = await Users.findOne({ where: { user_id: userId } });
+    if (!user) throw notFound('user');
+    assertNotRevoked(userData, 'user');
+
+    await user.update({
+      first_name: userData.firstName,
+      last_name: userData.lastName,
+      user_type: userData.userType,
+      middle_name: userData.middleName,
+      display_name: userData.displayName,
+      phone_country_code: userData.phoneCountryCode,
+      phone_number: userData.phoneNumber,
+    });
+    return user;
+  }
+
+  async deleteUser(userId, userData, actorUserId) {
+    const user = await Users.findOne({ where: { user_id: userId } });
+    if (!user) throw notFound('User');
+    assertNotRevoked(userData, 'User');
+    
+    await user.update({ status: STATUS.DELETED, deactivated_on: new Date(), modified_by: actorUserId, modified_on: new Date() });
+
+    return user;
+  }
+
   /** POST /api/v1/identity-admin/users/:userId/roles */
-  async assignRole(userId, roleId, effectiveFrom = null, effectiveTo = null, actorUserId) {
+  async assignRole(
+    userId,
+    roleId,
+    effectiveFrom = null,
+    effectiveTo = null,
+    actorUserId,
+  ) {
     await this.getUserById(userId);
     const now = new Date();
 
@@ -101,9 +170,9 @@ class UserService {
       role_id: roleId,
       effective_from: effectiveFrom || now,
       effective_to: effectiveTo,
-      status: 'ACTIVE',
+      status: "ACTIVE",
       created_by: actorUserId,
-      created_on: now
+      created_on: now,
     });
 
     return {
@@ -112,7 +181,7 @@ class UserService {
       roleId: Number(roleId),
       effectiveFrom: userRole.effective_from,
       effectiveTo: userRole.effective_to,
-      status: userRole.status || 'ACTIVE'
+      status: userRole.status || "ACTIVE",
     };
   }
 
@@ -124,36 +193,52 @@ class UserService {
    */
   async getUserRoles(userId, { includeExpired = false } = {}) {
     const now = new Date();
-    const where = { user_id: userId, status: 'ACTIVE' };
+    const where = { user_id: userId, status: "ACTIVE" };
     if (!includeExpired) {
       where[Op.and] = [
-        { [Op.or]: [{ effective_from: null }, { effective_from: { [Op.lte]: now } }] },
-        { [Op.or]: [{ effective_to: null }, { effective_to: { [Op.gte]: now } }] }
+        {
+          [Op.or]: [
+            { effective_from: null },
+            { effective_from: { [Op.lte]: now } },
+          ],
+        },
+        {
+          [Op.or]: [
+            { effective_to: null },
+            { effective_to: { [Op.gte]: now } },
+          ],
+        },
       ];
     }
 
     const userRoles = await UserRoles.findAll({
       where,
       attributes: [
-        ['user_role_id', 'userRoleId'],
-        ['effective_from', 'effectiveFrom'],
-        ['effective_to', 'effectiveTo'],
-        'status'
+        ["user_role_id", "userRoleId"],
+        ["effective_from", "effectiveFrom"],
+        ["effective_to", "effectiveTo"],
+        "status",
       ],
-      include: [{
-        model: Roles,
-        attributes: [['role_id', 'roleId'], ['role_code', 'roleCode'], ['role_name', 'roleName']]
-      }]
+      include: [
+        {
+          model: Roles,
+          attributes: [
+            ["role_id", "roleId"],
+            ["role_code", "roleCode"],
+            ["role_name", "roleName"],
+          ],
+        },
+      ],
     });
 
     return userRoles.map((ur) => ({
-      userRoleId: ur.get('userRoleId'),
-      roleId: ur.Role ? ur.Role.get('roleId') : null,
-      roleCode: ur.Role ? ur.Role.get('roleCode') : null,
-      roleName: ur.Role ? ur.Role.get('roleName') : null,
-      effectiveFrom: ur.get('effectiveFrom'),
-      effectiveTo: ur.get('effectiveTo'),
-      status: ur.status
+      userRoleId: ur.get("userRoleId"),
+      roleId: ur.Role ? ur.Role.get("roleId") : null,
+      roleCode: ur.Role ? ur.Role.get("roleCode") : null,
+      roleName: ur.Role ? ur.Role.get("roleName") : null,
+      effectiveFrom: ur.get("effectiveFrom"),
+      effectiveTo: ur.get("effectiveTo"),
+      status: ur.status,
     }));
   }
 
@@ -168,16 +253,18 @@ class UserService {
       const userRole = await UserRoles.findOne({
         where: { user_role_id: userRoleId, user_id: userId },
         transaction,
-        lock: transaction.LOCK.UPDATE
+        lock: transaction.LOCK.UPDATE,
       });
-      if (!userRole) throw notFound('User role assignment');
+      if (!userRole) throw notFound("User role assignment");
 
       const now = new Date();
       const values = { modified_by: actorUserId, modified_on: now };
-      if (data.effectiveFrom !== undefined) values.effective_from = data.effectiveFrom;
-      if (data.effectiveTo !== undefined) values.effective_to = data.effectiveTo;
+      if (data.effectiveFrom !== undefined)
+        values.effective_from = data.effectiveFrom;
+      if (data.effectiveTo !== undefined)
+        values.effective_to = data.effectiveTo;
       if (data.status !== undefined) values.status = data.status;
-      if (data.status === 'INACTIVE' && data.effectiveTo === undefined) {
+      if (data.status === "INACTIVE" && data.effectiveTo === undefined) {
         values.effective_to = now; // ending a grant early defaults effectiveTo to "now"
       }
 
@@ -188,7 +275,7 @@ class UserService {
         userId: Number(userId),
         effectiveFrom: userRole.effective_from,
         effectiveTo: userRole.effective_to,
-        status: userRole.status
+        status: userRole.status,
       };
     });
   }

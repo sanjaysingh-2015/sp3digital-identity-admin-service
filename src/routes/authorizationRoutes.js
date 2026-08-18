@@ -4,7 +4,7 @@ const controller = require('../controllers/authorizationController');
 const { Joi, validate } = require('../middleware/validate');
 
 const roleSchema = Joi.object({
-  roleCode: Joi.string().trim().pattern(/^[A-Z0-9_]+$/).max(100).required(),
+  roleType: Joi.string().trim().pattern(/^[A-Z0-9_]+$/).max(100).required(),
   roleName: Joi.string().trim().max(150).required(),
   description: Joi.string().trim().max(500).allow('', null),
   status: Joi.string().valid('ACTIVE', 'INACTIVE').default('ACTIVE')
@@ -42,7 +42,10 @@ const permissionAssignmentSchema = Joi.object({
  *         description: Role created successfully
  */
 router.get('/roles', controller.getRoles);
+router.get('/roles/:roleId', controller.getRoleById);
 router.post('/roles', validate(roleSchema), controller.createRole);
+router.patch('/roles/:roleId', validate(roleSchema), controller.updateRole);
+router.patch('/roles/:roleId/status',  controller.deleteRole)
 
 /**
  * @openapi

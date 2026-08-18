@@ -22,6 +22,24 @@ exports.createUser = async (req, res, next) => {
   } catch (err) { return next(err); }
 };
 
+exports.updateUser = async (req, res, next) => {
+    try {
+      const user = await userService.updateUser(req.params.userId, req.body, req.auth.userId);
+      return res.status(201).json(user);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  exports.deleteUser = async (req, res, next) => {
+    try {
+      const user = await userService.deleteUser(req.params.userId, req.body, req.auth.userId);
+      return res.status(201).json(user);
+    } catch (error) {
+      next(error);
+    }
+  }
+
 exports.assignRole = async (req, res, next) => {
   try {
     const { roleId, effectiveFrom, effectiveTo } = req.body;

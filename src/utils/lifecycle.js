@@ -12,7 +12,8 @@ const STATUS = Object.freeze({
   ACTIVE: 'ACTIVE',
   SUSPENDED: 'SUSPENDED',
   EXPIRED: 'EXPIRED',
-  REVOKED: 'REVOKED'
+  REVOKED: 'REVOKED',
+  DELETED: 'DELETED'
 });
 
 function notFound(entity) {

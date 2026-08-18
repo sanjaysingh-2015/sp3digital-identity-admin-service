@@ -4,8 +4,17 @@ class AuthorizationController {
   async getRoles(req, res, next) {
     try {
       const { page, limit, status, userType, search } = req.query;
-      console.log({ page, limit, status, userType, search });
+
       const roles = await authorizationService.getRoles({ page, limit, status, userType, search });
+      return res.status(200).json(roles);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getRoleById(req, res, next) {
+    try {
+      const roles = await authorizationService.getRoleById(req.params.roleId);
       return res.status(200).json(roles);
     } catch (error) {
       next(error);
@@ -21,10 +30,64 @@ class AuthorizationController {
     }
   }
 
+  async updateRole(req, res, next) {
+    try {
+      const role = await authorizationService.updateRole(req.params.roleId, req.body, req.auth.userId);
+      return res.status(201).json(role);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async deleteRole(req, res, next) {
+    try {
+      const role = await authorizationService.deleteRole(req.params.roleId, req.body, req.auth.userId);
+      return res.status(201).json(role);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getPermissions(req, res, next) {
     try {
       const permissions = await authorizationService.getPermissions();
       return res.status(200).json(permissions);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPermissionById(req, res, next) {
+    try {
+      const permission = await authorizationService.getPermissionsById(req.params.permissionId);
+      return res.status(200).json(permission);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async createPermission(req, res, next) {
+    try {
+      const permission = await authorizationService.createPermission(req.body);
+      return res.status(201).json(permission);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updatePermission(req, res, next) {
+    try {
+      const permission = await authorizationService.updatePermission(req.params.permissionId, req.body, req.auth.userId);
+      return res.status(201).json(permission);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async deletePermission(req, res, next) {
+    try {
+      const permission = await authorizationService.deletePermission(req.params.permissionId, req.body, req.auth.userId);
+      return res.status(201).json(permission);
     } catch (error) {
       next(error);
     }
