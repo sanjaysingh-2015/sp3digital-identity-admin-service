@@ -1,50 +1,66 @@
-const { Roles, Permissions, RolePermissions, sequelize } = require('../models');
-const UuidUtil = require('../utils/uuid.util');
-const CodeUtil = require('../utils/code.util');
-const { STATUS, notFound, isExpired, effectiveStatus, assertMutable, assertNotRevoked } = require('../utils/lifecycle');
+const { Roles, Permissions, RolePermissions, sequelize } = require("../models");
+const UuidUtil = require("../utils/uuid.util");
+const CodeUtil = require("../utils/code.util");
+const { Op } = require("sequelize");
+
+const {
+  STATUS,
+  notFound,
+  isExpired,
+  effectiveStatus,
+  assertMutable,
+  assertNotRevoked,
+} = require("../utils/lifecycle");
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
 class AuthorizationService {
   async getRoles({ page, limit, status, userType, search } = {}) {
-    const { limit: safeLimit, offset, page: safePage } = toSequelizePage({ page, limit });
+    const {
+      limit: safeLimit,
+      offset,
+      page: safePage,
+    } = toSequelizePage({ page, limit });
     const where = {};
     if (status) where.status = status;
     if (search) {
       where[Op.or] = [
         { role_name: { [Op.like]: `%${search}%` } },
-        { description: { [Op.like]: `%${search}%` } }
+        { description: { [Op.like]: `%${search}%` } },
       ];
     }
 
     const result = await Roles.findAndCountAll({
       where,
       attributes: [
-        ['role_id', 'roleId'],
-        ['role_code', 'roleCode'],
-        ['role_type', 'roleType'],
-        ['role_name', 'roleName'],
-        'description',
-        'status'
+        ["role_id", "roleId"],
+        ["role_code", "roleCode"],
+        ["role_type", "roleType"],
+        ["role_name", "roleName"],
+        "description",
+        "status",
       ],
-      order: [['created_on', 'DESC']],
+      order: [["created_on", "DESC"]],
       limit: safeLimit,
-      offset
+      offset,
     });
 
-    return buildEnvelope({ rows: result.rows, count: result.count }, { page: safePage, limit: safeLimit });
+    return buildEnvelope(
+      { rows: result.rows, count: result.count },
+      { page: safePage, limit: safeLimit },
+    );
   }
 
   async getRoleById(roleId) {
     const role = await Roles.findByPk(roleId, {
       attributes: [
-        ['role_id', 'roleId'],
-        ['role_code', 'roleCode'],
-        ['role_type', 'roleType'],
-        ['role_name', 'roleName'],
-        'description',
-        'status'
+        ["role_id", "roleId"],
+        ["role_code", "roleCode"],
+        ["role_type", "roleType"],
+        ["role_name", "roleName"],
+        "description",
+        "status",
       ],
     });
 
@@ -54,78 +70,94 @@ class AuthorizationService {
 
   async createRole(roleData) {
     const role = await Roles.create({
-      role_code: CodeUtil.generateCode('ROLE', roleData.roleName),
+      role_code: CodeUtil.generateCode("ROLE", roleData.roleName),
       role_name: roleData.roleName,
       description: roleData.description,
       role_uuid: UuidUtil.generate(),
       role_type: roleData.roleType,
-      status: roleData.status || 'ACTIVE'
+      status: roleData.status || "ACTIVE",
     });
     return role;
   }
 
   async updateRole(roleId, roleData, actorUserId) {
     const role = await Roles.findOne({ where: { role_id: roleId } });
-    if (!role) throw notFound('Role');
-    assertNotRevoked(roleData, 'Role');
+    if (!role) throw notFound("Role");
+    assertNotRevoked(roleData, "Role");
     await role.update({
       role_name: roleData.roleName,
       description: roleData.description,
-      role_type: roleData.roleType
+      role_type: roleData.roleType,
     });
     return role;
   }
 
   async deleteRole(roleId, roleData, actorUserId) {
     const role = await Roles.findOne({ where: { role_id: roleId } });
-    if (!role) throw notFound('Role');
-    assertNotRevoked(roleData, 'Role');
-    
-    await role.update({ status: STATUS.DELETED, deactivated_on: new Date(), modified_by: actorUserId, modified_on: new Date() });
+    if (!role) throw notFound("Role");
+    assertNotRevoked(roleData, "Role");
+
+    await role.update({
+      status: STATUS.DELETED,
+      deactivated_on: new Date(),
+      modified_by: actorUserId,
+      modified_on: new Date(),
+    });
 
     return role;
   }
 
   async getPermissions({ page, limit, status, userType, search } = {}) {
-    const { limit: safeLimit, offset, page: safePage } = toSequelizePage({ page, limit });
+    const {
+      limit: safeLimit,
+      offset,
+      page: safePage,
+    } = toSequelizePage({ page, limit });
     const where = {};
     if (status) where.status = status;
     if (search) {
       where[Op.or] = [
         { role_name: { [Op.like]: `%${search}%` } },
-        { description: { [Op.like]: `%${search}%` } }
+        { description: { [Op.like]: `%${search}%` } },
       ];
     }
 
     const result = await Permissions.findAndCountAll({
       where,
       attributes: [
-        ['permission_id', 'permissionId'],
-        ['permission_code', 'permissionCode'],
-        ['permission_name', 'permissionName'],
-        'description',
-        'resource',
-        'action',
-        'status'
+        ["permission_id", "permissionId"],
+        ["permission_code", "permissionCode"],
+        ["permission_name", "permissionName"],
+        "description",
+        ["resource_category","resourceCategory"],
+        "resource",
+        ["action_category","actionCategory"],
+        "action",
+        "status",
       ],
-      order: [['created_on', 'DESC']],
+      order: [["created_on", "DESC"]],
       limit: safeLimit,
-      offset
+      offset,
     });
 
-    return buildEnvelope({ rows: result.rows, count: result.count }, { page: safePage, limit: safeLimit });
+    return buildEnvelope(
+      { rows: result.rows, count: result.count },
+      { page: safePage, limit: safeLimit },
+    );
   }
 
-  async getPermissionById(roleId) {
-    const permission = await Permissions.findByPk(roleId, {
+  async getPermissionById(permissionId) {
+    const permission = await Permissions.findByPk(permissionId, {
       attributes: [
-        ['permission_id', 'permissionId'],
-        ['permission_code', 'permissionCode'],
-        ['permission_name', 'permissionName'],
-        'description',
-        'resource',
-        'action',
-        'status'
+        ["permission_id", "permissionId"],
+        ["permission_code", "permissionCode"],
+        ["permission_name", "permissionName"],
+        "description",
+        ["resource_category","resourceCategory"],
+        "resource",
+        ["action_category","actionCategory"],
+        "action",
+        "status",
       ],
     });
 
@@ -134,38 +166,166 @@ class AuthorizationService {
   }
 
   async createPermission(permissionData) {
-    const permission = await Permissions.create({
-      permission_code: CodeUtil.generateCode('PERMISSION', permissionData.permissionName),
-      permission_uuid: UuidUtil.generate(),
-      permission_name: permissionData.permissionName,
-      resource: permissionData.resource,
-      action: permissionData.action,
-      description: roleData.description,
-      permission_uuid: UuidUtil.generate(),
-      status: roleData.status || 'ACTIVE'
+    const {
+      permissionName,
+      resourceCategory,
+      resources = [],
+      actionCategory,
+      actions = [],
+      description,
+      status = "ACTIVE",
+      allowDuplicates = false,
+    } = permissionData;
+
+    // =========================================================
+    // 1. Generate all Resource × Action combinations
+    // =========================================================
+
+    const permissions = [];
+
+    for (const resource of resources) {
+      for (const action of actions) {
+        const permissionCode = `${resourceCategory}:${resource}:${action}`;
+
+        permissions.push({
+          permission_uuid: UuidUtil.generate(),
+          permission_code: permissionCode,
+          permission_name: permissionName,
+          resource_category: resourceCategory,
+          resource: resource,
+          action_category: actionCategory,
+          action: action,
+          description: description || `Allow user ${resource} ${action} access`,
+          status,
+        });
+      }
+    }
+
+    // =========================================================
+    // 2. Remove duplicate combinations from request itself
+    // =========================================================
+
+    const uniquePermissions = [];
+    const requestDuplicates = [];
+    const seenCodes = new Set();
+
+    for (const permission of permissions) {
+      if (seenCodes.has(permission.permission_code)) {
+        requestDuplicates.push(permission.permission_code);
+      } else {
+        seenCodes.add(permission.permission_code);
+        uniquePermissions.push(permission);
+      }
+    }
+
+    // =========================================================
+    // 3. Check database for existing permissions
+    // =========================================================
+
+    const existingPermissions = await Permissions.findAll({
+      where: {
+        permission_code: {
+          [Op.in]: uniquePermissions.map(
+            (permission) => permission.permission_code,
+          ),
+        },
+      },
+      attributes: ["permission_code"],
+      raw: true,
     });
-    return permission;
+
+    const databaseDuplicates = existingPermissions.map(
+      (permission) => permission.permission_code,
+    );
+
+    // =========================================================
+    // 4. Combine all duplicates
+    // =========================================================
+
+    const duplicateCodes = [
+      ...new Set([...requestDuplicates, ...databaseDuplicates]),
+    ];
+
+    // =========================================================
+    // 5. If duplicates exist and allowDuplicates = false
+    //    DO NOT INSERT ANYTHING
+    // =========================================================
+
+    if (duplicateCodes.length > 0 && !allowDuplicates) {
+      const error = new Error(
+        `Duplicate permission(s) found: ${duplicateCodes.join(", ")}`,
+      );
+
+      error.statusCode = 409;
+      error.code = "DUPLICATE_PERMISSION";
+      error.duplicates = duplicateCodes;
+
+      throw error;
+    }
+
+    // =========================================================
+    // 6. Remove database duplicates when allowDuplicates=true
+    // =========================================================
+
+    const databaseDuplicateSet = new Set(databaseDuplicates);
+
+    const permissionsToCreate = uniquePermissions.filter(
+      (permission) => !databaseDuplicateSet.has(permission.permission_code),
+    );
+
+    // =========================================================
+    // 7. Insert only unique permissions
+    // =========================================================
+
+    let createdPermissions = [];
+
+    if (permissionsToCreate.length > 0) {
+      createdPermissions = await Permissions.bulkCreate(permissionsToCreate);
+    }
+
+    // =========================================================
+    // 8. Return result
+    // =========================================================
+
+    return {
+      created: createdPermissions,
+      createdCount: createdPermissions.length,
+      duplicateCount: duplicateCodes.length,
+      duplicates: duplicateCodes,
+      allowDuplicates,
+    };
   }
 
   async updatePermission(permissionId, permissionData, actorUserId) {
-    const permission = await Permissions.findOne({ where: { permission_id: permissionId } });
-    if (!permission) throw notFound('Permission');
-    assertNotRevoked(permissionData, 'Permission');
-    await role.update({
+    const permission = await Permissions.findOne({
+      where: { permission_id: permissionId },
+    });
+    if (!permission) throw notFound("Permission");
+    assertNotRevoked(permissionData, "Permission");
+    await permission.update({
       permission_name: permissionData.permissionName,
       description: permissionData.description,
+      resource_category: permissionData.resourceCategory,
       resource: permissionData.resource,
-      action: permissionData.action
+      action_category: permissionData.actionCategory,
+      action: permissionData.action,
     });
     return permission;
   }
 
   async deletePermission(permissionId, permissionData, actorUserId) {
-    const permission = await Permissions.findOne({ where: { permission_id: permissionId } });
-    if (!permission) throw notFound('Permission');
-    assertNotRevoked(permissionData, 'Permission');
-    
-    await permission.update({ status: STATUS.DELETED, deactivated_on: new Date(), modified_by: actorUserId, modified_on: new Date() });
+    const permission = await Permissions.findOne({
+      where: { permission_id: permissionId },
+    });
+    if (!permission) throw notFound("Permission");
+    assertNotRevoked(permissionData, "Permission");
+
+    await permission.update({
+      status: STATUS.DELETED,
+      deactivated_on: new Date(),
+      modified_by: actorUserId,
+      modified_on: new Date(),
+    });
 
     return permission;
   }
@@ -174,19 +334,25 @@ class AuthorizationService {
     const transaction = await sequelize.transaction();
     try {
       // Clear existing associations
-      await RolePermissions.destroy({ where: { role_id: roleId }, transaction });
+      await RolePermissions.destroy({
+        where: { role_id: roleId },
+        transaction,
+      });
 
       // Bulk create new permission mappings
-      const records = permissionIds.map(permId => ({
+      const records = permissionIds.map((permId) => ({
         role_id: roleId,
         permission_id: permId,
-        status: 'ACTIVE'
+        status: "ACTIVE",
       }));
 
       await RolePermissions.bulkCreate(records, { transaction });
       await transaction.commit();
 
-      return { roleId: Number(roleId), permissionsAssigned: permissionIds.length };
+      return {
+        roleId: Number(roleId),
+        permissionsAssigned: permissionIds.length,
+      };
     } catch (error) {
       await transaction.rollback();
       throw error;
@@ -201,7 +367,11 @@ class AuthorizationService {
 function toSequelizePage({ page = 1, limit = DEFAULT_LIMIT } = {}) {
   const safeLimit = Math.min(Number(limit) || DEFAULT_LIMIT, MAX_LIMIT);
   const safePage = Math.max(Number(page) || 1, 1);
-  return { limit: safeLimit, offset: (safePage - 1) * safeLimit, page: safePage };
+  return {
+    limit: safeLimit,
+    offset: (safePage - 1) * safeLimit,
+    page: safePage,
+  };
 }
 
 function buildEnvelope({ rows, count }, { page, limit }) {
@@ -211,8 +381,8 @@ function buildEnvelope({ rows, count }, { page, limit }) {
       page,
       limit,
       totalItems: count,
-      totalPages: limit > 0 ? Math.ceil(count / limit) : 0
-    }
+      totalPages: limit > 0 ? Math.ceil(count / limit) : 0,
+    },
   };
 }
 

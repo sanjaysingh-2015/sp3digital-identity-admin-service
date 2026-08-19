@@ -20,7 +20,15 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING,
         allowNull: true,
       },
+      resource_category: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
       resource: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      action_category: {
         type: DataTypes.STRING,
         allowNull: true,
       },

@@ -11,11 +11,25 @@ const roleSchema = Joi.object({
 });
 
 const permissionSchema = Joi.object({
+  resourceCategory: Joi.string().trim().max(100).required(),
+  resources: Joi.array().items(Joi.string().trim().max(100)).min(1).required(),
+  actionCategory: Joi.string().trim().max(100).required(),
+  actions: Joi.array().items(Joi.string().trim().max(100)).min(1).required(),
+  permissionName: Joi.string().trim().max(150).required(),
+  description: Joi.string().trim().max(500).allow('', null),
+  status: Joi.string().valid('ACTIVE', 'INACTIVE').default('ACTIVE'),
+  allowDuplicates: Joi.boolean().default(false)
+});
+
+const permissionEditSchema = Joi.object({
+  resourceCategory: Joi.string().trim().max(100).required(),
   resource: Joi.string().trim().max(100).required(),
+  actionCategory: Joi.string().trim().max(100).required(),
   action: Joi.string().trim().max(100).required(),
   permissionName: Joi.string().trim().max(150).required(),
   description: Joi.string().trim().max(500).allow('', null),
-  status: Joi.string().valid('ACTIVE', 'INACTIVE').default('ACTIVE')
+  status: Joi.string().valid('ACTIVE', 'INACTIVE').default('ACTIVE'),
+  allowDuplicates: Joi.boolean().default(false)
 });
 
 const permissionAssignmentSchema = Joi.object({
@@ -66,9 +80,9 @@ router.patch('/roles/:roleId/status',  controller.deleteRole)
  *         description: List of permissions
  */
 router.get('/permissions', controller.getPermissions);
-router.get('/permissions/:roleId', controller.getPermissionById);
+router.get('/permissions/:permissionId', controller.getPermissionById);
 router.post('/permissions', validate(permissionSchema), controller.createPermission);
-router.patch('/permissions/:permissionId', validate(permissionSchema), controller.updatePermission);
+router.patch('/permissions/:permissionId', validate(permissionEditSchema), controller.updatePermission);
 router.patch('/permissions/:permissionId/status',  controller.deletePermission)
 /**
  * @openapi
