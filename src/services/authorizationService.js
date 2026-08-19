@@ -86,7 +86,7 @@ class AuthorizationService {
     return role;
   }
 
-  async getPermissions() {
+  async getPermissions({ page, limit, status, userType, search } = {}) {
     const { limit: safeLimit, offset, page: safePage } = toSequelizePage({ page, limit });
     const where = {};
     if (status) where.status = status;
@@ -105,7 +105,8 @@ class AuthorizationService {
         ['permission_name', 'permissionName'],
         'description',
         'resource',
-        'action'
+        'action',
+        'status'
       ],
       order: [['created_on', 'DESC']],
       limit: safeLimit,

@@ -44,6 +44,8 @@ app.use('/api/v1/identity-admin/service-accounts', require('./routes/serviceAcco
 app.use('/api/v1/identity-admin/audit-logs', require('./routes/auditRoutes'));
 app.use('/api/v1/identity-admin/auth-configs', require('./routes/authConfigRoutes'));
 app.use('/api/v1/identity-admin/api-clients', require('./routes/apiClientRoutes'));
+app.use('/api/v1/identity-admin', require('./routes/resourceActionRoutes'));
+app.use('/api/v1/identity-admin', require('./routes/resourceActionRoutes'));
 
 app.use((req, res) => {
   res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } });

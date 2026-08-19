@@ -10,6 +10,14 @@ const roleSchema = Joi.object({
   status: Joi.string().valid('ACTIVE', 'INACTIVE').default('ACTIVE')
 });
 
+const permissionSchema = Joi.object({
+  resource: Joi.string().trim().max(100).required(),
+  action: Joi.string().trim().max(100).required(),
+  permissionName: Joi.string().trim().max(150).required(),
+  description: Joi.string().trim().max(500).allow('', null),
+  status: Joi.string().valid('ACTIVE', 'INACTIVE').default('ACTIVE')
+});
+
 const permissionAssignmentSchema = Joi.object({
   permissionIds: Joi.array().items(Joi.number().integer().positive()).unique().min(1).required()
 });
@@ -58,7 +66,10 @@ router.patch('/roles/:roleId/status',  controller.deleteRole)
  *         description: List of permissions
  */
 router.get('/permissions', controller.getPermissions);
-
+router.get('/permissions/:roleId', controller.getPermissionById);
+router.post('/permissions', validate(permissionSchema), controller.createPermission);
+router.patch('/permissions/:permissionId', validate(permissionSchema), controller.updatePermission);
+router.patch('/permissions/:permissionId/status',  controller.deletePermission)
 /**
  * @openapi
  * /api/v1/identity-admin/roles/{roleId}/permissions:
