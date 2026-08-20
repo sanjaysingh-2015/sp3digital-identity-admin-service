@@ -129,8 +129,8 @@ class UserService {
 
   async updateUser(userId, userData, actorUserId) {
     const user = await Users.findOne({ where: { user_id: userId } });
-    if (!user) throw notFound('user');
-    assertNotRevoked(userData, 'user');
+    if (!user) throw notFound('User');
+    assertNotRevoked(user, 'User');
 
     await user.update({
       first_name: userData.firstName,
@@ -147,7 +147,7 @@ class UserService {
   async deleteUser(userId, userData, actorUserId) {
     const user = await Users.findOne({ where: { user_id: userId } });
     if (!user) throw notFound('User');
-    assertNotRevoked(userData, 'User');
+    assertNotRevoked(user, 'User');
     
     await user.update({ status: STATUS.DELETED, deactivated_on: new Date(), modified_by: actorUserId, modified_on: new Date() });
 

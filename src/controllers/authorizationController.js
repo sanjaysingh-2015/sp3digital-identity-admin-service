@@ -8,7 +8,7 @@ class AuthorizationController {
       const roles = await authorizationService.getRoles({ page, limit, status, userType, search });
       return res.status(200).json(roles);
     } catch (error) {
-      next(error);
+      return next(error);
     }
   }
 
@@ -17,7 +17,7 @@ class AuthorizationController {
       const roles = await authorizationService.getRoleById(req.params.roleId);
       return res.status(200).json(roles);
     } catch (error) {
-      next(error);
+      return next(error);
     }
   }
 
@@ -26,7 +26,7 @@ class AuthorizationController {
       const role = await authorizationService.createRole(req.body);
       return res.status(201).json(role);
     } catch (error) {
-      next(error);
+      return next(error);
     }
   }
 
@@ -35,7 +35,7 @@ class AuthorizationController {
       const role = await authorizationService.updateRole(req.params.roleId, req.body, req.auth.userId);
       return res.status(201).json(role);
     } catch (error) {
-      next(error);
+      return next(error);
     }
   }
 
@@ -44,7 +44,7 @@ class AuthorizationController {
       const role = await authorizationService.deleteRole(req.params.roleId, req.body, req.auth.userId);
       return res.status(201).json(role);
     } catch (error) {
-      next(error);
+      return next(error);
     }
   }
 
@@ -53,7 +53,7 @@ class AuthorizationController {
       const permissions = await authorizationService.getPermissions();
       return res.status(200).json(permissions);
     } catch (error) {
-      next(error);
+      return next(error);
     }
   }
 
@@ -62,7 +62,7 @@ class AuthorizationController {
       const permission = await authorizationService.getPermissionById(req.params.permissionId);
       return res.status(200).json(permission);
     } catch (error) {
-      next(error);
+      return next(error);
     }
   }
 
@@ -71,7 +71,7 @@ class AuthorizationController {
       const permission = await authorizationService.createPermission(req.body);
       return res.status(201).json(permission);
     } catch (error) {
-      next(error);
+      return next(error);
     }
   }
 
@@ -80,7 +80,7 @@ class AuthorizationController {
       const permission = await authorizationService.updatePermission(req.params.permissionId, req.body, req.auth.userId);
       return res.status(201).json(permission);
     } catch (error) {
-      next(error);
+      return next(error);
     }
   }
 
@@ -89,7 +89,7 @@ class AuthorizationController {
       const permission = await authorizationService.deletePermission(req.params.permissionId, req.body, req.auth.userId);
       return res.status(201).json(permission);
     } catch (error) {
-      next(error);
+      return next(error);
     }
   }
 
@@ -100,7 +100,7 @@ class AuthorizationController {
       const result = await authorizationService.assignPermissionsToRole(roleId, permissionIds);
       return res.status(200).json(result);
     } catch (error) {
-      next(error);
+      return next(error);
     }
   }
 }
