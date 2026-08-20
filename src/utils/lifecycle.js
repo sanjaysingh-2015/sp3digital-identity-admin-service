@@ -24,11 +24,12 @@ function notFound(entity) {
   return error;
 }
 
-function conflict(message) {
+function conflict(message, code = 'LIFECYCLE_CONFLICT', extra = {}) {
   const error = new Error(message);
   error.statusCode = 409;
-  error.code = 'LIFECYCLE_CONFLICT';
+  error.code = code;
   error.expose = true;
+  Object.assign(error, extra);
   return error;
 }
 

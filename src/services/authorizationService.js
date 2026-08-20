@@ -6,6 +6,7 @@ const { Op } = require("sequelize");
 const {
   STATUS,
   notFound,
+  conflict,
   isExpired,
   effectiveStatus,
   assertMutable,
@@ -83,7 +84,7 @@ class AuthorizationService {
   async updateRole(roleId, roleData, actorUserId) {
     const role = await Roles.findOne({ where: { role_id: roleId } });
     if (!role) throw notFound("Role");
-    assertNotRevoked(roleData, "Role");
+    assertNotRevoked(role, "Role");
     await role.update({
       role_name: roleData.roleName,
       description: roleData.description,
@@ -95,7 +96,7 @@ class AuthorizationService {
   async deleteRole(roleId, roleData, actorUserId) {
     const role = await Roles.findOne({ where: { role_id: roleId } });
     if (!role) throw notFound("Role");
-    assertNotRevoked(roleData, "Role");
+    assertNotRevoked(role, "Role");
 
     await role.update({
       status: STATUS.DELETED,
@@ -252,15 +253,11 @@ class AuthorizationService {
     // =========================================================
 
     if (duplicateCodes.length > 0 && !allowDuplicates) {
-      const error = new Error(
+      throw conflict(
         `Duplicate permission(s) found: ${duplicateCodes.join(", ")}`,
+        "DUPLICATE_PERMISSION",
+        { duplicates: duplicateCodes },
       );
-
-      error.statusCode = 409;
-      error.code = "DUPLICATE_PERMISSION";
-      error.duplicates = duplicateCodes;
-
-      throw error;
     }
 
     // =========================================================
@@ -301,7 +298,7 @@ class AuthorizationService {
       where: { permission_id: permissionId },
     });
     if (!permission) throw notFound("Permission");
-    assertNotRevoked(permissionData, "Permission");
+    assertNotRevoked(permission, "Permission");
     await permission.update({
       permission_name: permissionData.permissionName,
       description: permissionData.description,
@@ -318,7 +315,7 @@ class AuthorizationService {
       where: { permission_id: permissionId },
     });
     if (!permission) throw notFound("Permission");
-    assertNotRevoked(permissionData, "Permission");
+    assertNotRevoked(permission, "Permission");
 
     await permission.update({
       status: STATUS.DELETED,
