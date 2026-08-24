@@ -1,46 +1,98 @@
-const idpService = require('../services/idpService');
+const identityProviderService = require('../services/idpService');
+const {
+  validateCreatePayload,
+  validateUpdatePayload,
+  validateStatusPayload,
+} = require('../services/identityProvider.validation');
 
-exports.getProviders = async (req, res) => {
+exports.getIdentityProviders = async (req, res, next) => {
   try {
-    const providers = await idpService.getAllProviders();
-    res.status(200).json({
-      items: providers,
-      page: 0,
-      pageSize: providers.length,
-      totalElements: providers.length
+    const { page, limit, status, providerType, search } = req.query;
+    const providers = await identityProviderService.getIdentityProviders(req.auth.tenantUuid, {
+      page,
+      limit,
+      status,
+      providerType,
+      search,
     });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    return res.status(200).json(providers);
+  } catch (error) {
+    return next(error);
   }
 };
 
-exports.createProvider = async (req, res) => {
+exports.getIdentityProviderById = async (req, res, next) => {
   try {
-    const provider = await idpService.createProvider(req.body);
-    res.status(201).json(provider);
-  } catch (err) {
-    res.status(400).json({ error: err.message });
+    const provider = await identityProviderService.getIdentityProviderById(
+      req.params.identityProviderId,
+      req.auth.tenantUuid,
+    );
+    return res.status(200).json(provider);
+  } catch (error) {
+    return next(error);
   }
 };
 
-exports.testProvider = async (req, res) => {
+exports.createIdentityProvider = async (req, res, next) => {
   try {
-    const result = await idpService.testProvider(req.params.id);
+    validateCreatePayload(req.body);
+    const provider = await identityProviderService.createIdentityProvider(
+      req.body,
+      req.auth.userId,
+    );
+    return res.status(201).json(provider);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.updateIdentityProvider = async (req, res, next) => {
+  try {
+    validateUpdatePayload(req.body);
+    const provider = await identityProviderService.updateIdentityProvider(
+      req.params.identityProviderId,
+      req.body,
+      req.auth.userId,
+    );
+    return res.status(200).json(provider);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.deleteIdentityProvider = async (req, res, next) => {
+  try {
+    const provider = await identityProviderService.deleteIdentityProvider(
+      req.params.identityProviderId,
+      req.auth.tenantUuid,
+      req.auth.userId,
+    );
+    return res.status(200).json(provider);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.updateStatus = async (req, res, next) => {
+  try {
+    validateStatusPayload(req.body);
+    const provider = await identityProviderService.updateStatus(
+      req.params.identityProviderId,
+      req.body.status,
+      req.auth.tenantUuid,
+      req.auth.userId,
+    );
+    return res.status(200).json(provider);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.testProvider = async (req, res, next) => {
+  try {
+    const result = await identityProviderService.testProvider(req.params.id);
     res.status(200).json(result);
-  } catch (err) {
-    res.status(404).json({ error: err.message });
-  }
-};
-
-exports.updateStatus = async (req, res) => {
-  try {
-    const { status } = req.body;
-    if (!status) {
-      return res.status(400).json({ error: 'Status field is required' });
-    }
-    const result = await idpService.updateStatus(req.params.id, status);
-    res.status(200).json(result);
-  } catch (err) {
-    res.status(400).json({ error: err.message });
+  } catch (error) {
+    return next(error);
   }
 };

@@ -1,9 +1,10 @@
 const tenantService = require("../services/tenantService");
 
 class TenantController {
-  getTenants = async (req, res) => {
+  searchTenants = async (req, res) => {
     try {
-      const tenants = await tenantService.getTenants();
+      const tenantName = req.query.q;
+      const tenants = await tenantService.searchByName(tenantName);
       return res.status(200).json({
         success: true,
         count: tenants.length,
