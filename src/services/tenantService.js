@@ -29,6 +29,28 @@ class TenantService {
 
     return tenants;
   }
+
+  async getTenants() {
+    const whereClause = {
+      status: 'ACTIVE' // Returns active tenants by default
+    };
+
+    const tenants = await IdentityTenants.findAll({
+      where: whereClause,
+      attributes: [
+        ['tenant_uuid', 'tenantUuid'],
+        ['tenant_code', 'tenantCode'],
+        ['tenant_name', 'tenantName'],
+        'status',
+        ['created_on', 'createdOn'],
+        ['modified_on', 'modifiedOn']
+      ],
+      order: [['tenant_name', 'ASC']],
+      raw: true
+    });
+
+    return tenants;
+  }
 }
 
 module.exports = new TenantService();

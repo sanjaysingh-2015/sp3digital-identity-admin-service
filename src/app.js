@@ -6,7 +6,7 @@ const db = require('./models'); // Imports index.js which loads all models & seq
 const { authenticate, authorize } = require('./middleware/authentication');
 const { auditWrites } = require('./middleware/audit');
 const authController = require('./controllers/authController');
-const tenantController = require('./controllers/tenantController');
+const publicController = require('./controllers/publicController');
 const wellKnownRoutes = require('./routes/wellKnownRoutes');
 
 const app = express();
@@ -25,9 +25,8 @@ const authorizeAdminRequest = (req, res, next) => {
 };
 
 app.post('/api/v1/identity-admin/auth/login', authController.login)
-// app.get('/api/v1/identity-admin/.well-known/jwks.json', tokenService.getJwks);
 app.post('/api/v1/identity-admin/auth/change-password', authController.changePassword);
-app.get('/api/v1/identity-admin/tenants/search', tenantController.searchTenants);
+app.get('/api/v1/identity-admin/public/tenants/search', publicController.searchTenants);
 
 app.use('/api/v1/identity-admin', authenticate, authorizeAdminRequest, auditWrites);
 
@@ -35,6 +34,7 @@ app.use('/api/v1/identity-admin', authenticate, authorizeAdminRequest, auditWrit
 app.use('/api/v1/identity-admin/identity-providers', require('./routes/idpRoutes'));
 app.use('/api/v1/identity-admin/users', require('./routes/userRoutes'));
 app.use('/api/v1/identity-admin/authorization', require('./routes/authorizationRoutes'));
+app.use('/api/v1/identity-admin/tenants', require('./routes/tenantRoutes'));
 app.use('/api/v1/identity-admin/oauth', require('./routes/oAuthClientRoutes'));
 app.use('/api/v1/identity-admin/security-policy', require('./routes/securityPolicyRoutes'));
 app.use('/api/v1/identity-admin/users/:userId/mfa', require('./routes/mfaRoutes'));
@@ -46,6 +46,7 @@ app.use('/api/v1/identity-admin/auth-configs', require('./routes/authConfigRoute
 app.use('/api/v1/identity-admin/api-clients', require('./routes/apiClientRoutes'));
 app.use('/api/v1/identity-admin', require('./routes/resourceActionRoutes'));
 app.use('/api/v1/identity-admin', require('./routes/resourceActionRoutes'));
+
 
 app.use((req, res) => {
   res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } });

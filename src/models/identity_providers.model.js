@@ -8,6 +8,10 @@ module.exports = (sequelize, DataTypes) => {
         primaryKey: true,
         autoIncrement: true,
       },
+      tenant_uuid: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
       provider_uuid: {
         type: DataTypes.STRING,
         allowNull: true,

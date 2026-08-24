@@ -85,8 +85,12 @@ const statusSchema = Joi.object({ status: Joi.string().valid('ACTIVE', 'INACTIVE
  *       201:
  *         description: Identity provider created successfully
  */
-router.get('/', idpController.getProviders);
-router.post('/', validate(providerSchema), idpController.createProvider);
+router.get('/', idpController.getIdentityProviders);
+router.get('/:identityProviderId', idpController.getIdentityProviderById);
+router.post('', idpController.createIdentityProvider);
+router.put('/:identityProviderId', idpController.updateIdentityProvider);
+router.delete('/:identityProviderId', idpController.deleteIdentityProvider);
+router.patch('/:identityProviderId/status', idpController.updateStatus);
 
 /**
  * @swagger
@@ -106,35 +110,35 @@ router.post('/', validate(providerSchema), idpController.createProvider);
  */
 router.post('/:id/test', idpController.testProvider);
 
-/**
- * @swagger
- * /api/v1/identity-admin/identity-providers/{id}/status:
- *   patch:
- *     summary: Activate or deactivate an identity provider
- *     tags: [Identity Providers]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: integer
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - status
- *             properties:
- *               status:
- *                 type: string
- *                 enum: [ACTIVE, INACTIVE]
- *                 example: "ACTIVE"
- *     responses:
- *       200:
- *         description: Provider status updated successfully
- */
-router.patch('/:id/status', validate(statusSchema), idpController.updateStatus);
+// /**
+//  * @swagger
+//  * /api/v1/identity-admin/identity-providers/{id}/status:
+//  *   patch:
+//  *     summary: Activate or deactivate an identity provider
+//  *     tags: [Identity Providers]
+//  *     parameters:
+//  *       - in: path
+//  *         name: id
+//  *         required: true
+//  *         schema:
+//  *           type: integer
+//  *     requestBody:
+//  *       required: true
+//  *       content:
+//  *         application/json:
+//  *           schema:
+//  *             type: object
+//  *             required:
+//  *               - status
+//  *             properties:
+//  *               status:
+//  *                 type: string
+//  *                 enum: [ACTIVE, INACTIVE]
+//  *                 example: "ACTIVE"
+//  *     responses:
+//  *       200:
+//  *         description: Provider status updated successfully
+//  */
+// router.patch('/:id/status', validate(statusSchema), idpController.updateStatus);
 
 module.exports = router;
