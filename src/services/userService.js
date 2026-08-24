@@ -4,7 +4,15 @@ const { Op } = require("sequelize");
 const { toSequelizePage, buildEnvelope } = require("../utils/pagination");
 const UuidUtil = require("../utils/uuid.util");
 const CodeUtil = require("../utils/code.util");
-const { STATUS, notFound, isExpired, effectiveStatus, assertMutable, assertNotRevoked } = require('../utils/lifecycle');
+const {
+  STATUS,
+  notFound,
+  isExpired,
+  effectiveStatus,
+  assertMutable,
+  assertNotRevoked,
+} = require("../utils/lifecycle");
+const { any } = require("joi");
 
 const USER_ATTRIBUTES = [
   ["user_id", "userId"],
@@ -129,8 +137,8 @@ class UserService {
 
   async updateUser(userId, userData, actorUserId) {
     const user = await Users.findOne({ where: { user_id: userId } });
-    if (!user) throw notFound('User');
-    assertNotRevoked(user, 'User');
+    if (!user) throw notFound("User");
+    assertNotRevoked(user, "User");
 
     await user.update({
       first_name: userData.firstName,
@@ -146,10 +154,15 @@ class UserService {
 
   async deleteUser(userId, userData, actorUserId) {
     const user = await Users.findOne({ where: { user_id: userId } });
-    if (!user) throw notFound('User');
-    assertNotRevoked(user, 'User');
-    
-    await user.update({ status: STATUS.DELETED, deactivated_on: new Date(), modified_by: actorUserId, modified_on: new Date() });
+    if (!user) throw notFound("User");
+    assertNotRevoked(user, "User");
+
+    await user.update({
+      status: STATUS.DELETED,
+      deactivated_on: new Date(),
+      modified_by: actorUserId,
+      modified_on: new Date(),
+    });
 
     return user;
   }
@@ -164,16 +177,29 @@ class UserService {
   ) {
     await this.getUserById(userId);
     const now = new Date();
-
-    const userRole = await UserRoles.create({
-      user_id: userId,
-      role_id: roleId,
-      effective_from: effectiveFrom || now,
-      effective_to: effectiveTo,
-      status: "ACTIVE",
-      created_by: actorUserId,
-      created_on: now,
+    const existingUserRole = await UserRoles.findOne({
+      where: { role_id: roleId, user_id: userId }
     });
+    let userRole = any;
+    if (existingUserRole) {
+      userRole = existingUserRole.update({
+        effective_from: effectiveFrom || now,
+        effective_to: effectiveTo,
+        status: "ACTIVE",
+        modified_by: actorUserId,
+        modified_on: now,
+      });
+    } else {
+      userRole = await UserRoles.create({
+        user_id: userId,
+        role_id: roleId,
+        effective_from: effectiveFrom || now,
+        effective_to: effectiveTo,
+        status: "ACTIVE",
+        created_by: actorUserId,
+        created_on: now,
+      });
+    }
 
     return {
       userRoleId: userRole.user_role_id,

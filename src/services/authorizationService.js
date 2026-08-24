@@ -130,9 +130,9 @@ class AuthorizationService {
         ["permission_code", "permissionCode"],
         ["permission_name", "permissionName"],
         "description",
-        ["resource_category","resourceCategory"],
+        ["resource_category", "resourceCategory"],
         "resource",
-        ["action_category","actionCategory"],
+        ["action_category", "actionCategory"],
         "action",
         "status",
       ],
@@ -154,9 +154,9 @@ class AuthorizationService {
         ["permission_code", "permissionCode"],
         ["permission_name", "permissionName"],
         "description",
-        ["resource_category","resourceCategory"],
+        ["resource_category", "resourceCategory"],
         "resource",
-        ["action_category","actionCategory"],
+        ["action_category", "actionCategory"],
         "action",
         "status",
       ],
@@ -350,6 +350,54 @@ class AuthorizationService {
         roleId: Number(roleId),
         permissionsAssigned: permissionIds.length,
       };
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  }
+  
+  async revokePermissionsToRole(roleId, permissionIds) {
+    const transaction = await sequelize.transaction();
+    try {
+      // Clear existing associations
+      await RolePermissions.destroy({
+        where: { role_id: roleId },
+        transaction,
+      });
+
+      // Bulk create new permission mappings
+      const records = permissionIds.map((permId) => ({
+        role_id: roleId,
+        permission_id: permId,
+        status: "ACTIVE",
+      }));
+
+      await RolePermissions.bulkCreate(records, { transaction });
+      await transaction.commit();
+
+      return {
+        roleId: Number(roleId),
+        permissionsAssigned: permissionIds.length,
+      };
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  }
+  
+  async getRolePermissions(roleId) {
+    try {
+      // Clear existing associations
+      const rolePermissions = await RolePermissions.findAll({
+        where: { role_id: roleId },
+        attributes: [
+          ["permission_id", "permissionId"],
+          ["role_permission_id", "rolePermissionId"],
+          "status",
+        ],
+      });
+
+      return rolePermissions;
     } catch (error) {
       await transaction.rollback();
       throw error;
