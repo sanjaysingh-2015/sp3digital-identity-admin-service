@@ -111,6 +111,7 @@ router.patch('/permissions/:permissionId/status',  controller.deletePermission)
  *         description: Permissions successfully assigned
  */
 router.post('/roles/:roleId/permissions', validate(permissionAssignmentSchema), controller.assignPermissionsToRole);
+router.patch('/roles/:roleId/permissions/revoke', validate(permissionAssignmentSchema), controller.revokePermissionsToRole);
 router.get('/roles/:roleId/permissions', controller.getRolePermissions);
 
 module.exports = router;

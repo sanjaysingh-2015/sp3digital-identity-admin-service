@@ -131,6 +131,20 @@ class AuthorizationController {
     }
   }
 
+  async revokePermissionsToRole(req, res, next) {
+    try {
+      const { roleId } = req.params;
+      const { permissionIds } = req.body;
+      const result = await authorizationService.revokePermissionsToRole(
+        roleId,
+        permissionIds,
+      );
+      return res.status(200).json(result);
+    } catch (error) {
+      return next(error);
+    }
+  }
+
   async getRolePermissions(req, res, next) {
     try {
       const { roleId } = req.params;
