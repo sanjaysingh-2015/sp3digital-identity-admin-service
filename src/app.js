@@ -25,12 +25,12 @@ const authorizeAdminRequest = (req, res, next) => {
 };
 
 app.post('/api/v1/identity-admin/auth/login', authController.login)
-app.post('/api/v1/identity-admin/auth/change-password', authController.changePassword);
 app.get('/api/v1/identity-admin/public/tenants/search', publicController.searchTenants);
 
 app.use('/api/v1/identity-admin', authenticate, authorizeAdminRequest, auditWrites);
 
 // Base routes
+app.use('/api/v1/identity-admin/auth', require('./routes/authRoutes'));
 app.use('/api/v1/identity-admin/identity-providers', require('./routes/idpRoutes'));
 app.use('/api/v1/identity-admin/users', require('./routes/userRoutes'));
 app.use('/api/v1/identity-admin/authorization', require('./routes/authorizationRoutes'));
