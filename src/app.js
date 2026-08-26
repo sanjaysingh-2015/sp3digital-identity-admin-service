@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./config/swagger');
 const db = require('./models'); // Imports index.js which loads all models & sequelize
@@ -11,7 +12,24 @@ const wellKnownRoutes = require('./routes/wellKnownRoutes');
 
 const app = express();
 
-app.use(cors());
+// ALLOWED_ORIGINS: comma-separated list, e.g.
+//   ALLOWED_ORIGINS=https://admin.sp3digital.com,https://staging-admin.sp3digital.com
+// Falls back to allowing all origins ONLY when unset, so local dev keeps working
+// without extra setup — but every real environment must set this explicitly.
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+app.use(helmet());
+app.use(cors(
+  allowedOrigins.length
+    ? {
+        origin: allowedOrigins,
+        credentials: true,
+      }
+    : undefined // no ALLOWED_ORIGINS set -> permissive default, dev-only
+));
 app.use(express.json());
 
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
@@ -27,10 +45,18 @@ const authorizeAdminRequest = (req, res, next) => {
 app.post('/api/v1/identity-admin/auth/login', authController.login)
 app.get('/api/v1/identity-admin/public/tenants/search', publicController.searchTenants);
 
+// authRoutes.js's own routes (login/mfa, token/refresh, logout, change-password)
+// must stay reachable without a bearer token — that's their whole purpose (you
+// don't have a valid access token yet, or it just expired, which is exactly
+// when you need these). They get their own targeted protection instead:
+// change-password's forceChange=true path requires admin auth explicitly
+// (see requireAdminForForceChange in authRoutes.js); the rest authenticate via
+// their body payload (mfaToken / refreshToken), same pattern as /auth/login.
+app.use('/api/v1/identity-admin/auth', require('./routes/authRoutes'));
+
 app.use('/api/v1/identity-admin', authenticate, authorizeAdminRequest, auditWrites);
 
 // Base routes
-app.use('/api/v1/identity-admin/auth', require('./routes/authRoutes'));
 app.use('/api/v1/identity-admin/identity-providers', require('./routes/idpRoutes'));
 app.use('/api/v1/identity-admin/users', require('./routes/userRoutes'));
 app.use('/api/v1/identity-admin/authorization', require('./routes/authorizationRoutes'));
@@ -44,7 +70,6 @@ app.use('/api/v1/identity-admin/service-accounts', require('./routes/serviceAcco
 app.use('/api/v1/identity-admin/audit-logs', require('./routes/auditRoutes'));
 app.use('/api/v1/identity-admin/auth-configs', require('./routes/authConfigRoutes'));
 app.use('/api/v1/identity-admin/api-clients', require('./routes/apiClientRoutes'));
-app.use('/api/v1/identity-admin', require('./routes/resourceActionRoutes'));
 app.use('/api/v1/identity-admin', require('./routes/resourceActionRoutes'));
 
 

@@ -3,6 +3,7 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const controller = require('../controllers/authController');
 const { Joi, validate } = require('../middleware/validate');
+const { authenticate, authorize } = require('../middleware/authentication');
 
 /**
  * These endpoints are how a caller *gets* a token in the first place, so
@@ -45,15 +46,31 @@ const changePasswordSchema = Joi.object({
 });
 
 /**
- * ⚠️ SECURITY NOTE: forceChange=true is fully public — no authentication is
- * required. Anyone who knows a user's usernameOrEmail + tenantUuid can set
- * that user's password with zero proof of identity. This was an explicit,
- * deliberate choice (not the original design — see git history) and should
- * be revisited before this service handles real user accounts. At minimum,
- * consider replacing this with a proper reset-token flow (emailed/SMS'd
- * short-lived token proving inbox/phone ownership) rather than leaving
- * password-reset fully open on the network.
+ * forceChange=true skips the oldPassword check entirely (that's what
+ * forceChange means — an admin overriding a user's password without
+ * knowing it). Without a check here, that's a full account-takeover
+ * primitive: anyone who knows usernameOrEmail + tenantUuid (both
+ * discoverable, the latter via the public tenant-search endpoint) could
+ * set any user's password with zero proof of identity.
+ *
+ * self-service changes (forceChange omitted/false) stay fully public —
+ * they're already protected by the oldPassword check inside authService.
+ * Only the forceChange=true path needs a real caller, so this middleware
+ * is a no-op for everything else.
  */
+function requireAdminForForceChange(req, res, next) {
+  if (req.body?.forceChange !== true) return next();
+
+  return authenticate(req, res, (err) => {
+    if (err) return next(err);
+    // Using the existing blanket permission for now since that's what
+    // current admin roles actually carry — tighten this to a granular
+    // 'users:write' once the RBAC-granularity work lands (see roadmap
+    // Week 6) so force-change specifically requires user-management
+    // rights rather than any admin-write permission.
+    return authorize('identity-admin:write')(req, res, next);
+  });
+}
 
 /**
  * @openapi
@@ -116,15 +133,17 @@ router.post('/logout', validate(refreshSchema), controller.logout);
  *   post:
  *     summary: >
  *       Sets a new password for a user identified by usernameOrEmail + tenantUuid.
- *       Fully public — no authentication required for either mode.
- *       Self-service (forceChange omitted/false) requires oldPassword to match.
- *       forceChange=true skips oldPassword entirely (see security note above router.post below).
+ *       Self-service (forceChange omitted/false) is public and requires oldPassword
+ *       to match. forceChange=true (admin override, skips oldPassword) requires a
+ *       valid bearer token with identity-admin:write — see requireAdminForForceChange above.
  *     tags: [Authentication]
  *     responses:
  *       200:
  *         description: "{ userId, passwordUpdated: true, forceChange, passwordExpiresOn, rotationRequired }"
  *       401:
- *         description: Invalid oldPassword or account locked (forceChange=false only)
+ *         description: Invalid oldPassword, account locked (forceChange=false), or missing/invalid bearer token (forceChange=true)
+ *       403:
+ *         description: Authenticated caller lacks identity-admin:write (forceChange=true only)
  *       422:
  *         description: New password fails the tenant's security policy (complexity/reuse)
  */
@@ -132,6 +151,7 @@ router.post(
   '/change-password',
   loginRateLimiter,
   validate(changePasswordSchema),
+  requireAdminForForceChange,
   controller.changePassword
 );
 
