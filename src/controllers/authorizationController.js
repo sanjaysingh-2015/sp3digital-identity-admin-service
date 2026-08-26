@@ -135,7 +135,6 @@ class AuthorizationController {
     try {
       const { roleId } = req.params;
       const { permissionIds } = req.body;
-      console.log("permissionIds ==> ", permissionIds);
       const result = await authorizationService.revokePermissionsToRole(
         roleId,
         permissionIds,

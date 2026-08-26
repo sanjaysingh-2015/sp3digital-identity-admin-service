@@ -417,10 +417,6 @@ class AuthorizationService {
 
   async revokePermissionsToRole(roleId, permissionIds) {
     const transaction = await sequelize.transaction();
-
-    console.log("Revoking ==> ", permissionIds);
-    console.log("RoleId ==> ", roleId);
-
     try {
       const [updatedCount] = await RolePermissions.update(
         {
@@ -432,17 +428,11 @@ class AuthorizationService {
             role_permission_id: permissionIds,
             status: "ACTIVE",
           },
-          transaction,
-          logging: console.log,
+          transaction
         },
       );
 
-      console.log("Updated Count ==> ", updatedCount);
-
       await transaction.commit();
-
-      console.log("Transaction committed");
-
       return {
         roleId: Number(roleId),
         permissionsRevoked: updatedCount,

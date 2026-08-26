@@ -227,22 +227,19 @@ class UserService {
               role_id: toActivate,
               status: "INACTIVE",
             },
-            transaction,
-            logging: console.log
+            transaction
           },
         );
       }
-console.log("Updated");
+
       // Insert new mappings
       if (toInsert.length) {
         await UserRoles.bulkCreate(toInsert, {
-          transaction,
-          logging: console.log
+          transaction
         });
       }
-console.log("Inserted");
+
       await transaction.commit();
-console.log("Commited");
       return {
         userId: Number(userId),
         rolesAssigned: uniqueRoleIds.length,
@@ -341,8 +338,7 @@ console.log("Commited");
             ["role_name", "roleName"],
           ],
         },
-      ],
-      logging: console.log
+      ]
     });
 
     return userRoles.map((ur) => ({
