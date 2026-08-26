@@ -36,6 +36,10 @@ const permissionAssignmentSchema = Joi.object({
   permissionIds: Joi.array().items(Joi.number().integer().positive()).unique().min(1).required()
 });
 
+const permissionAssignmentUpdateSchema = Joi.object({
+  permissionIds: Joi.array().items(Joi.number().integer().positive()).unique().min(1).required()
+});
+
 /**
  * @openapi
  * /api/v1/identity-admin/authorization/roles:
@@ -111,7 +115,7 @@ router.patch('/permissions/:permissionId/status',  controller.deletePermission)
  *         description: Permissions successfully assigned
  */
 router.post('/roles/:roleId/permissions', validate(permissionAssignmentSchema), controller.assignPermissionsToRole);
-router.patch('/roles/:roleId/permissions/revoke', validate(permissionAssignmentSchema), controller.revokePermissionsToRole);
+router.patch('/roles/:roleId/permissions', validate(permissionAssignmentUpdateSchema), controller.revokePermissionsToRole);
 router.get('/roles/:roleId/permissions', controller.getRolePermissions);
 
 module.exports = router;

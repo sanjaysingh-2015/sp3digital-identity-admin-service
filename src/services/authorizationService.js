@@ -329,62 +329,132 @@ class AuthorizationService {
 
   async assignPermissionsToRole(roleId, permissionIds) {
     const transaction = await sequelize.transaction();
+
     try {
-      // Clear existing associations
-      await RolePermissions.destroy({
-        where: { role_id: roleId },
+      // Remove duplicate permission IDs
+      const uniquePermissionIds = [
+        ...new Set(permissionIds.map((id) => Number(id))),
+      ];
+
+      // Find existing mappings for this role
+      const existingMappings = await RolePermissions.findAll({
+        where: {
+          role_id: roleId,
+          permission_id: uniquePermissionIds,
+        },
+        attributes: ["role_permission_id", "permission_id", "status"],
+        raw: true,
         transaction,
       });
 
-      // Bulk create new permission mappings
-      const records = permissionIds.map((permId) => ({
-        role_id: roleId,
-        permission_id: permId,
-        status: "ACTIVE",
-      }));
+      const existingMap = new Map(
+        existingMappings.map((mapping) => [
+          Number(mapping.permission_id),
+          mapping,
+        ]),
+      );
 
-      await RolePermissions.bulkCreate(records, { transaction });
+      const toActivate = [];
+      const toInsert = [];
+
+      for (const permissionId of uniquePermissionIds) {
+        const existing = existingMap.get(permissionId);
+
+        if (existing) {
+          // Existing INACTIVE mapping -> reactivate
+          if (existing.status === "INACTIVE") {
+            toActivate.push(permissionId);
+          }
+
+          // Existing ACTIVE mapping -> do nothing
+        } else {
+          // No mapping -> create new one
+          toInsert.push({
+            role_id: roleId,
+            permission_id: permissionId,
+            status: "ACTIVE",
+          });
+        }
+      }
+
+      // Reactivate existing mappings
+      if (toActivate.length) {
+        await RolePermissions.update(
+          {
+            status: "ACTIVE",
+          },
+          {
+            where: {
+              role_id: roleId,
+              permission_id: toActivate,
+              status: "INACTIVE",
+            },
+            transaction,
+          },
+        );
+      }
+
+      // Insert new mappings
+      if (toInsert.length) {
+        await RolePermissions.bulkCreate(toInsert, {
+          transaction,
+        });
+      }
+
       await transaction.commit();
 
       return {
         roleId: Number(roleId),
-        permissionsAssigned: permissionIds.length,
+        permissionsAssigned: uniquePermissionIds.length,
+        permissionsReactivated: toActivate.length,
+        permissionsCreated: toInsert.length,
       };
     } catch (error) {
       await transaction.rollback();
       throw error;
     }
   }
-  
+
   async revokePermissionsToRole(roleId, permissionIds) {
     const transaction = await sequelize.transaction();
+
+    console.log("Revoking ==> ", permissionIds);
+    console.log("RoleId ==> ", roleId);
+
     try {
-      // Clear existing associations
-      await RolePermissions.destroy({
-        where: { role_id: roleId },
-        transaction,
-      });
+      const [updatedCount] = await RolePermissions.update(
+        {
+          status: "INACTIVE",
+        },
+        {
+          where: {
+            role_id: roleId,
+            role_permission_id: permissionIds,
+            status: "ACTIVE",
+          },
+          transaction,
+          logging: console.log,
+        },
+      );
 
-      // Bulk create new permission mappings
-      const records = permissionIds.map((permId) => ({
-        role_id: roleId,
-        permission_id: permId,
-        status: "ACTIVE",
-      }));
+      console.log("Updated Count ==> ", updatedCount);
 
-      await RolePermissions.bulkCreate(records, { transaction });
       await transaction.commit();
+
+      console.log("Transaction committed");
 
       return {
         roleId: Number(roleId),
-        permissionsAssigned: permissionIds.length,
+        permissionsRevoked: updatedCount,
       };
     } catch (error) {
+      console.error("Revoke permissions failed:", error);
+
       await transaction.rollback();
       throw error;
     }
   }
-  
+
   async getRolePermissions(roleId) {
     try {
       // Clear existing associations

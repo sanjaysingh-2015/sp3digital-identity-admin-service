@@ -3,6 +3,7 @@ const userService = require('../services/userService');
 exports.getUsers = async (req, res, next) => {
   try {
     const { page, limit, status, userType, search } = req.query;
+    
     const users = await userService.getUsers(req.auth.tenantUuid, { page, limit, status, userType, search });
     return res.status(200).json(users);
   } catch (error) {
@@ -48,8 +49,8 @@ exports.deleteUser = async (req, res, next) => {
 
 exports.assignRole = async (req, res, next) => {
   try {
-    const { roleId, effectiveFrom, effectiveTo } = req.body;
-    const result = await userService.assignRole(req.params.userId, roleId, effectiveFrom, effectiveTo, req.auth.userId);
+    const { roleIds, effectiveFrom, effectiveTo } = req.body;
+    const result = await userService.assignRole(req.params.userId, roleIds, effectiveFrom, effectiveTo, req.auth.userId);
     return res.status(200).json(result);
   } catch (error) {
     return next(error);
