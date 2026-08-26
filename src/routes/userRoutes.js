@@ -25,7 +25,7 @@ const userSchema = Joi.object({
 });
 
 const roleAssignmentSchema = Joi.object({
-  roleId: id,
+  roleIds: Joi.array().items(Joi.number().integer().positive()).unique().min(1).required(),
   effectiveFrom: Joi.date().iso().allow(null),
   effectiveTo: Joi.date().iso().min(Joi.ref('effectiveFrom')).allow(null)
 });

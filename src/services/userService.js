@@ -168,48 +168,135 @@ class UserService {
   }
 
   /** POST /api/v1/identity-admin/users/:userId/roles */
-  async assignRole(
-    userId,
-    roleId,
-    effectiveFrom = null,
-    effectiveTo = null,
-    actorUserId,
-  ) {
-    await this.getUserById(userId);
-    const now = new Date();
-    const existingUserRole = await UserRoles.findOne({
-      where: { role_id: roleId, user_id: userId }
-    });
-    let userRole = any;
-    if (existingUserRole) {
-      userRole = existingUserRole.update({
-        effective_from: effectiveFrom || now,
-        effective_to: effectiveTo,
-        status: "ACTIVE",
-        modified_by: actorUserId,
-        modified_on: now,
-      });
-    } else {
-      userRole = await UserRoles.create({
-        user_id: userId,
-        role_id: roleId,
-        effective_from: effectiveFrom || now,
-        effective_to: effectiveTo,
-        status: "ACTIVE",
-        created_by: actorUserId,
-        created_on: now,
-      });
-    }
+  async assignRole(userId, roleIds, effectiveFrom, effectiveTo, actorUserId) {
+    const transaction = await sequelize.transaction();
+     const now = new Date();
+    try {
+      // Remove duplicate permission IDs
+      const uniqueRoleIds = [...new Set(roleIds.map((id) => Number(id)))];
 
-    return {
-      userRoleId: userRole.user_role_id,
-      userId: Number(userId),
-      roleId: Number(roleId),
-      effectiveFrom: userRole.effective_from,
-      effectiveTo: userRole.effective_to,
-      status: userRole.status || "ACTIVE",
-    };
+      // Find existing mappings for this role
+      const existingMappings = await UserRoles.findAll({
+        where: {
+          user_id: userId,
+          role_id: uniqueRoleIds,
+        },
+        attributes: ["user_role_id", "role_id", "status"],
+        raw: true,
+        transaction,
+      });
+
+      const existingMap = new Map(
+        existingMappings.map((mapping) => [Number(mapping.role_id), mapping]),
+      );
+
+      const toActivate = [];
+      const toInsert = [];
+
+      for (const roleId of uniqueRoleIds) {
+        const existing = existingMap.get(roleId);
+
+        if (existing) {
+          // Existing INACTIVE mapping -> reactivate
+          if (existing.status === "INACTIVE") {
+            toActivate.push(roleId);
+          }
+
+          // Existing ACTIVE mapping -> do nothing
+        } else {
+          // No mapping -> create new one
+          toInsert.push({
+            user_id: userId,
+            role_id: roleId,
+            status: "ACTIVE",
+          });
+        }
+      }
+
+      // Reactivate existing mappings
+      if (toActivate.length) {
+        await UserRoles.update(
+          {
+            status: "ACTIVE",
+            effective_to: null,
+            effective_from: effectiveFrom || now
+          },
+          {
+            where: {
+              user_id: userId,
+              role_id: toActivate,
+              status: "INACTIVE",
+            },
+            transaction,
+            logging: console.log
+          },
+        );
+      }
+console.log("Updated");
+      // Insert new mappings
+      if (toInsert.length) {
+        await UserRoles.bulkCreate(toInsert, {
+          transaction,
+          logging: console.log
+        });
+      }
+console.log("Inserted");
+      await transaction.commit();
+console.log("Commited");
+      return {
+        userId: Number(userId),
+        rolesAssigned: uniqueRoleIds.length,
+        rolesReactivated: toActivate.length,
+        rolesCreated: toInsert.length,
+      };
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
   }
+
+  // async assignRole(
+  //   userId,
+  //   roleIds,
+  //   effectiveFrom = null,
+  //   effectiveTo = null,
+  //   actorUserId,
+  // ) {
+  //   await this.getUserById(userId);
+  //   const now = new Date();
+  //   const existingUserRole = await UserRoles.findOne({
+  //     where: { role_id: roleIds, user_id: userId },
+  //   });
+  //   let userRole = any;
+  //   if (existingUserRole) {
+  //     userRole = existingUserRole.update({
+  //       effective_from: effectiveFrom || now,
+  //       effective_to: effectiveTo,
+  //       status: "ACTIVE",
+  //       modified_by: actorUserId,
+  //       modified_on: now,
+  //     });
+  //   } else {
+  //     userRole = await UserRoles.create({
+  //       user_id: userId,
+  //       role_id: roleId,
+  //       effective_from: effectiveFrom || now,
+  //       effective_to: effectiveTo,
+  //       status: "ACTIVE",
+  //       created_by: actorUserId,
+  //       created_on: now,
+  //     });
+  //   }
+
+  //   return {
+  //     userRoleId: userRole.user_role_id,
+  //     userId: Number(userId),
+  //     roleId: Number(roleId),
+  //     effectiveFrom: userRole.effective_from,
+  //     effectiveTo: userRole.effective_to,
+  //     status: userRole.status || "ACTIVE",
+  //   };
+  // }
 
   /**
    * GET /api/v1/identity-admin/users/:userId/roles
@@ -255,6 +342,7 @@ class UserService {
           ],
         },
       ],
+      logging: console.log
     });
 
     return userRoles.map((ur) => ({
