@@ -8,6 +8,10 @@ module.exports = (sequelize, DataTypes) => {
         autoIncrement: true,
         allowNull: false,
       },
+      tenant_uuid: {
+        type: DataTypes.STRING(36),
+        allowNull: true,
+      },
       actor_user_id: {
         type: DataTypes.BIGINT.UNSIGNED,
         allowNull: true,

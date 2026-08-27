@@ -15,6 +15,7 @@ const {
 const { any } = require("joi");
 
 const USER_ATTRIBUTES = [
+  ["tenant_uuid", "tenantUuid"],
   ["user_id", "userId"],
   ["user_uuid", "userUuid"],
   "username",
@@ -87,9 +88,10 @@ class UserService {
     return user;
   }
 
-  async createUser(userData, tenantUuid, actorUserId) {
+  async createUser(userData, actorUserId) {
     const userUuid = uuidv4();
     const {
+      tenantUuid,
       username,
       email,
       firstName,
@@ -99,6 +101,7 @@ class UserService {
       phoneCountryCode,
       phoneNumber,
       userType = "USER",
+      status,
     } = userData;
     const now = new Date();
 
@@ -122,6 +125,7 @@ class UserService {
     return {
       userId: newUser.user_id,
       userUuid: newUser.user_uuid,
+      tenantUuid: newUser.tenant_uuid,
       username: newUser.username,
       email: newUser.email,
       userType: newUser.user_type,

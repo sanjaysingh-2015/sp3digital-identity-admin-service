@@ -35,7 +35,7 @@ class AuthController {
   async logout(req, res, next) {
     try {
       const { refreshToken } = req.body;
-      const result = await authService.logout(refreshToken);
+      const result = await authService.logout(refreshToken, clientMeta(req));
       return res.status(200).json(result);
     } catch (error) { next(error); }
   }
@@ -48,7 +48,7 @@ class AuthController {
       // changes stay anonymous — authService.changePassword() falls back to
       // the target user as their own actor when actorUserId is undefined.
       const actorUserId = req.auth?.userId;
-      const result = await authService.changePassword({ usernameOrEmail, tenantUuid, oldPassword, newPassword, forceChange, actorUserId });
+      const result = await authService.changePassword({ usernameOrEmail, tenantUuid, oldPassword, newPassword, forceChange, actorUserId, ipAddress: req.ip });
       return res.status(200).json(result);
     } catch (error) { next(error); }
   }

@@ -19,7 +19,9 @@ module.exports = (db) => {
     OrganizationsUsers: OrganizationUser,
     FacilitiesUsers: FacilityUser,
     OauthClients: OAuthClient,
-    ServiceAccounts: ServiceAccount
+    ServiceAccounts: ServiceAccount,
+    AuditLogs: AuditLog,
+    IdentityTenants
   } = db;
 
   // ==========================================
@@ -143,5 +145,15 @@ module.exports = (db) => {
   if (RefreshToken) {
     RefreshToken.hasMany(RefreshToken, { foreignKey: 'parent_token_id', as: 'childTokens' });
     RefreshToken.belongsTo(RefreshToken, { foreignKey: 'parent_token_id', as: 'parentToken' });
+  }
+
+  // ==========================================
+  // 7. AUDIT LOG ASSOCIATIONS
+  // ==========================================
+  // aliased ('actor'/'tenant') since AuditLog's FKs (actor_user_id,
+  // tenant_uuid) don't match Sequelize's default naming convention.
+  if (AuditLog) {
+    if (User) AuditLog.belongsTo(User, { foreignKey: 'actor_user_id', targetKey: 'user_id', as: 'actor' });
+    if (IdentityTenants) AuditLog.belongsTo(IdentityTenants, { foreignKey: 'tenant_uuid', targetKey: 'tenantUuid', as: 'tenant' });
   }
 };
