@@ -1,0 +1,88 @@
+diff --git a/src/models/associations.js b/src/models/associations.js
+index 3f23d56..9618c13 100644
+--- a/src/models/associations.js
++++ b/src/models/associations.js
+@@ -19,7 +19,9 @@ module.exports = (db) => {
+     OrganizationsUsers: OrganizationUser,
+     FacilitiesUsers: FacilityUser,
+     OauthClients: OAuthClient,
+-    ServiceAccounts: ServiceAccount
++    ServiceAccounts: ServiceAccount,
++    AuditLogs: AuditLog,
++    IdentityTenants
+   } = db;
+ 
+   // ==========================================
+@@ -144,4 +146,14 @@ module.exports = (db) => {
+     RefreshToken.hasMany(RefreshToken, { foreignKey: 'parent_token_id', as: 'childTokens' });
+     RefreshToken.belongsTo(RefreshToken, { foreignKey: 'parent_token_id', as: 'parentToken' });
+   }
++
++  // ==========================================
++  // 7. AUDIT LOG ASSOCIATIONS
++  // ==========================================
++  // aliased ('actor'/'tenant') since AuditLog's FKs (actor_user_id,
++  // tenant_uuid) don't match Sequelize's default naming convention.
++  if (AuditLog) {
++    if (User) AuditLog.belongsTo(User, { foreignKey: 'actor_user_id', targetKey: 'user_id', as: 'actor' });
++    if (IdentityTenants) AuditLog.belongsTo(IdentityTenants, { foreignKey: 'tenant_uuid', targetKey: 'tenantUuid', as: 'tenant' });
++  }
+ };
+
+diff --git a/tests/audit-service.test.js b/tests/audit-service.test.js
+index 6402e68..b2864fc 100644
+--- a/tests/audit-service.test.js
++++ b/tests/audit-service.test.js
+@@ -47,3 +47,52 @@ test('audit service rejects writing an event without a tenantUuid', async () =>
+     /tenantUuid/
+   );
+ });
++
++test('audit service scopes reads to the tenant and joins actor username + tenant name', async () => {
++  const tenantUuid = 'a1b2c3d4-e5f6-4a5b-8c7d-9e0f1a2b3c4d';
++  const originalFindAndCountAll = db.AuditLogs.findAndCountAll;
++  let capturedQuery;
++
++  db.AuditLogs.findAndCountAll = async (query) => {
++    capturedQuery = query;
++    return {
++      count: 1,
++      rows: [
++        {
++          get: () => ({
++            audit_id: 99,
++            tenant_uuid: tenantUuid,
++            actor_user_id: 7,
++            action: 'LOGIN',
++            target_resource: 'user-uuid-1',
++            changes: null,
++            ip_address: '127.0.0.1',
++            created_on: new Date('2026-01-01T00:00:00Z'),
++            actor: { username: 'jdoe' },
++            tenant: { tenantName: 'Acme Health' }
++          })
++        }
++      ]
++    };
++  };
++
++  try {
++    const page = await auditService.getAuditLogs(tenantUuid, { page: 1, limit: 10 });
++
++    assert.equal(capturedQuery.where.tenant_uuid, tenantUuid);
++    assert.deepEqual(page.data[0], {
++      auditId: 99,
++      tenantUuid,
++      tenantName: 'Acme Health',
++      actorUserId: 7,
++      username: 'jdoe',
++      action: 'LOGIN',
++      targetResource: 'user-uuid-1',
++      changes: null,
++      ipAddress: '127.0.0.1',
++      createdOn: new Date('2026-01-01T00:00:00Z')
++    });
++  } finally {
++    db.AuditLogs.findAndCountAll = originalFindAndCountAll;
++  }
++});

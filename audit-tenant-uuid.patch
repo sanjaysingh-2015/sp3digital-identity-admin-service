@@ -1,0 +1,474 @@
+diff --git a/src/controllers/auditController.js b/src/controllers/auditController.js
+index 3686697..f050665 100644
+--- a/src/controllers/auditController.js
++++ b/src/controllers/auditController.js
+@@ -3,8 +3,8 @@ const auditService = require('../services/auditService');
+ class AuditController {
+   async getAuditLogs(req, res, next) {
+     try {
+-      const { limit, offset } = req.query;
+-      const logs = await auditService.getAuditLogs(req.auth.tenantUuid, limit, offset);
++      const { page, limit, search } = req.query;
++      const logs = await auditService.getAuditLogs(req.auth.tenantUuid, { page, limit, search });
+       return res.status(200).json(logs);
+     } catch (err) { next(err); }
+   }
+diff --git a/src/controllers/authController.js b/src/controllers/authController.js
+index 55c7a75..029e8af 100644
+--- a/src/controllers/authController.js
++++ b/src/controllers/authController.js
+@@ -35,7 +35,7 @@ class AuthController {
+   async logout(req, res, next) {
+     try {
+       const { refreshToken } = req.body;
+-      const result = await authService.logout(refreshToken);
++      const result = await authService.logout(refreshToken, clientMeta(req));
+       return res.status(200).json(result);
+     } catch (error) { next(error); }
+   }
+@@ -48,7 +48,7 @@ class AuthController {
+       // changes stay anonymous — authService.changePassword() falls back to
+       // the target user as their own actor when actorUserId is undefined.
+       const actorUserId = req.auth?.userId;
+-      const result = await authService.changePassword({ usernameOrEmail, tenantUuid, oldPassword, newPassword, forceChange, actorUserId });
++      const result = await authService.changePassword({ usernameOrEmail, tenantUuid, oldPassword, newPassword, forceChange, actorUserId, ipAddress: req.ip });
+       return res.status(200).json(result);
+     } catch (error) { next(error); }
+   }
+diff --git a/src/middleware/audit.js b/src/middleware/audit.js
+index 722ed5f..a8e614f 100644
+--- a/src/middleware/audit.js
++++ b/src/middleware/audit.js
+@@ -18,11 +18,12 @@ function auditWrites(req, res, next) {
+     if (res.statusCode < 200 || res.statusCode >= 300) return;
+ 
+     auditService.writeEvent({
++      tenantUuid: req.auth.tenantUuid,
+       actorUserId: req.auth.userId,
+       action: `${req.method} ${req.baseUrl}${req.path}`,
+       targetResource: req.baseUrl,
+       ipAddress: req.auth.ipAddress,
+-      changes: { tenantUuid: req.auth.tenantUuid, params: req.params, body: redact(req.body) }
++      changes: { params: req.params, body: redact(req.body) }
+     }).catch((error) => console.error('Unable to write audit event', error));
+   });
+   next();
+diff --git a/src/models/associations.js b/src/models/associations.js
+index 3f23d56..9618c13 100644
+--- a/src/models/associations.js
++++ b/src/models/associations.js
+@@ -19,7 +19,9 @@ module.exports = (db) => {
+     OrganizationsUsers: OrganizationUser,
+     FacilitiesUsers: FacilityUser,
+     OauthClients: OAuthClient,
+-    ServiceAccounts: ServiceAccount
++    ServiceAccounts: ServiceAccount,
++    AuditLogs: AuditLog,
++    IdentityTenants
+   } = db;
+ 
+   // ==========================================
+@@ -144,4 +146,14 @@ module.exports = (db) => {
+     RefreshToken.hasMany(RefreshToken, { foreignKey: 'parent_token_id', as: 'childTokens' });
+     RefreshToken.belongsTo(RefreshToken, { foreignKey: 'parent_token_id', as: 'parentToken' });
+   }
++
++  // ==========================================
++  // 7. AUDIT LOG ASSOCIATIONS
++  // ==========================================
++  // aliased ('actor'/'tenant') since AuditLog's FKs (actor_user_id,
++  // tenant_uuid) don't match Sequelize's default naming convention.
++  if (AuditLog) {
++    if (User) AuditLog.belongsTo(User, { foreignKey: 'actor_user_id', targetKey: 'user_id', as: 'actor' });
++    if (IdentityTenants) AuditLog.belongsTo(IdentityTenants, { foreignKey: 'tenant_uuid', targetKey: 'tenantUuid', as: 'tenant' });
++  }
+ };
+diff --git a/src/models/audit_logs.model.js b/src/models/audit_logs.model.js
+index 5cdcb80..786a8c7 100644
+--- a/src/models/audit_logs.model.js
++++ b/src/models/audit_logs.model.js
+@@ -8,6 +8,10 @@ module.exports = (sequelize, DataTypes) => {
+         autoIncrement: true,
+         allowNull: false,
+       },
++      tenant_uuid: {
++        type: DataTypes.STRING(36),
++        allowNull: true,
++      },
+       actor_user_id: {
+         type: DataTypes.BIGINT.UNSIGNED,
+         allowNull: true,
+diff --git a/src/routes/auditRoutes.js b/src/routes/auditRoutes.js
+index 6c1e8a4..2df4a36 100644
+--- a/src/routes/auditRoutes.js
++++ b/src/routes/auditRoutes.js
+@@ -4,8 +4,9 @@ const controller = require('../controllers/auditController');
+ const { Joi, validate } = require('../middleware/validate');
+ 
+ const paginationSchema = Joi.object({
++  page: Joi.number().integer().min(1).default(1),
+   limit: Joi.number().integer().min(1).max(500).default(100),
+-  offset: Joi.number().integer().min(0).default(0)
++  search: Joi.string().trim().allow('').optional()
+ });
+ 
+ /**
+@@ -16,11 +17,15 @@ const paginationSchema = Joi.object({
+  *     tags: [Audit]
+  *     parameters:
+  *       - in: query
++ *         name: page
++ *         schema: { type: integer, default: 1 }
++ *       - in: query
+  *         name: limit
+  *         schema: { type: integer, default: 100 }
+  *       - in: query
+- *         name: offset
+- *         schema: { type: integer, default: 0 }
++ *         name: search
++ *         schema: { type: string }
++ *         description: Filters by the acting user's username
+  *     responses:
+  *       200:
+  *         description: Audit log records
+diff --git a/src/services/auditService.js b/src/services/auditService.js
+index d03968a..2681c53 100644
+--- a/src/services/auditService.js
++++ b/src/services/auditService.js
+@@ -1,8 +1,34 @@
+-const { AuditLogs, sequelize } = require('../models');
++const { AuditLogs, Users, IdentityTenants } = require('../models');
++const { Op } = require('sequelize');
++const { toSequelizePage, buildEnvelope } = require('../utils/pagination');
++
++function toResponse(auditLog) {
++  const item = auditLog.get ? auditLog.get({ plain: true }) : auditLog;
++  return {
++    auditId: Number(item.audit_id),
++    tenantUuid: item.tenant_uuid,
++    tenantName: item.tenant?.tenantName ?? null,
++    actorUserId: item.actor_user_id,
++    username: item.actor?.username ?? null,
++    action: item.action,
++    targetResource: item.target_resource,
++    changes: item.changes,
++    ipAddress: item.ip_address,
++    createdOn: item.created_on
++  };
++}
+ 
+ class AuditService {
+-  async writeEvent({ actorUserId, action, targetResource, changes, ipAddress }) {
++  // tenantUuid is required: every audit entry must be attributable to a
++  // tenant so cross-tenant queries/filtering (getAuditLogs below) stay a
++  // simple indexed column lookup instead of reaching into the changes JSON.
++  async writeEvent({ tenantUuid, actorUserId, action, targetResource, changes, ipAddress }) {
++    if (!tenantUuid) {
++      throw new Error('auditService.writeEvent requires tenantUuid');
++    }
++
+     return AuditLogs.create({
++      tenant_uuid: tenantUuid,
+       actor_user_id: actorUserId,
+       action,
+       target_resource: targetResource,
+@@ -11,16 +37,37 @@ class AuditService {
+     });
+   }
+ 
+-  async getAuditLogs(tenantUuid, limit = 100, offset = 0) {
+-    return await AuditLogs.findAll({
+-      where: sequelize.where(
+-        sequelize.fn('JSON_UNQUOTE', sequelize.fn('JSON_EXTRACT', sequelize.col('changes'), '$.tenantUuid')),
+-        tenantUuid
+-      ),
+-      limit: Number(limit),
+-      offset: Number(offset),
++  async getAuditLogs(tenantUuid, { page, limit, search } = {}) {
++    const { limit: safeLimit, offset, page: safePage } = toSequelizePage({ page, limit });
++
++    const where = { tenant_uuid: tenantUuid };
++
++    const result = await AuditLogs.findAndCountAll({
++      where,
++      include: [
++        {
++          model: Users,
++          as: 'actor',
++          attributes: ['username'],
++          required: false,
++          // Only constrains rows when `search` is present: an inner join
++          // would otherwise silently drop entries with no matching/deleted
++          // actor (e.g. system-triggered events) once a where is attached.
++          ...(search
++            ? { required: true, where: { username: { [Op.like]: `%${search}%` } } }
++            : {})
++        },
++        { model: IdentityTenants, as: 'tenant', attributes: ['tenantName'], required: false }
++      ],
++      limit: safeLimit,
++      offset,
+       order: [['created_on', 'DESC']]
+     });
++
++    return buildEnvelope(
++      { rows: result.rows.map(toResponse), count: result.count },
++      { page: safePage, limit: safeLimit }
++    );
+   }
+ }
+ 
+diff --git a/src/services/authService.js b/src/services/authService.js
+index 72089d2..772ef36 100644
+--- a/src/services/authService.js
++++ b/src/services/authService.js
+@@ -15,6 +15,7 @@ const credentialService = require("./credentialService");
+ const mfaService = require("./mfaService");
+ const securityPolicyService = require("./securityPolicyService");
+ const tokenService = require("../security/tokenService");
++const auditService = require("./auditService");
+ 
+ const MFA_CHALLENGE_AUDIENCE = "mfa_challenge";
+ const MFA_CHALLENGE_TTL_SECONDS = Number(
+@@ -29,6 +30,21 @@ function authError(code, message, statusCode = 401) {
+   return error;
+ }
+ 
++/**
++ * These auth-flow actions (login, MFA completion, refresh, logout, password
++ * change) all happen *before* a bearer token exists, so they never pass
++ * through app.js's generic `auditWrites` middleware (which requires
++ * req.auth.userId). tenantUuid is the one piece of tenant context available
++ * at every one of these call sites, so it's what makes each entry
++ * attributable even without an authenticated request. Fire-and-forget, same
++ * as the middleware — an audit-write failure must never block a login.
++ */
++function logAudit({ tenantUuid, actorUserId, action, targetResource, changes, ipAddress }) {
++  auditService
++    .writeEvent({ tenantUuid, actorUserId, action, targetResource, changes, ipAddress })
++    .catch((error) => console.error("Unable to write audit event", error));
++}
++
+ /** Same role -> permission resolution authentication.js's authorize() uses, so tokens carry claims that will actually pass authorization. */
+ async function resolvePermissions(userId) {
+   const assignments = await UserRoles.findAll({
+@@ -248,6 +264,15 @@ class AuthService {
+           expiresIn: MFA_CHALLENGE_TTL_SECONDS,
+         },
+       );
++
++      logAudit({
++        tenantUuid,
++        actorUserId: user.user_id,
++        action: "LOGIN_MFA_CHALLENGE_ISSUED",
++        targetResource: user.user_uuid,
++        ipAddress,
++      });
++
+       return {
+         mfaRequired: true,
+         mfaToken,
+@@ -255,7 +280,7 @@ class AuthService {
+       };
+     }
+ 
+-    return sequelize.transaction((transaction) =>
++    const result = await sequelize.transaction((transaction) =>
+       issueTokens(
+         {
+           user,
+@@ -268,6 +293,16 @@ class AuthService {
+         transaction,
+       ),
+     );
++
++    logAudit({
++      tenantUuid,
++      actorUserId: user.user_id,
++      action: "LOGIN",
++      targetResource: user.user_uuid,
++      ipAddress,
++    });
++
++    return result;
+   }
+ 
+   /** Step 2 of login when MFA is required: exchanges the challenge + TOTP code for real tokens. */
+@@ -294,7 +329,7 @@ class AuthService {
+ 
+     await mfaService.verifyLoginCode(user.user_id, code); // throws on bad/expired code, enforces lockout
+ 
+-    return sequelize.transaction((transaction) =>
++    const result = await sequelize.transaction((transaction) =>
+       issueTokens(
+         {
+           user,
+@@ -307,6 +342,16 @@ class AuthService {
+         transaction,
+       ),
+     );
++
++    logAudit({
++      tenantUuid: claims.tenant_uuid,
++      actorUserId: user.user_id,
++      action: "LOGIN_MFA_COMPLETE",
++      targetResource: user.user_uuid,
++      ipAddress,
++    });
++
++    return result;
+   }
+ 
+   /**
+@@ -407,6 +452,14 @@ class AuthService {
+         { where: { session_id: record.session_id }, transaction },
+       );
+ 
++      logAudit({
++        tenantUuid: user.tenant_uuid,
++        actorUserId: user.user_id,
++        action: "TOKEN_REFRESH",
++        targetResource: user.user_uuid,
++        ipAddress,
++      });
++
+       return {
+         tokenType: "Bearer",
+         accessToken,
+@@ -440,6 +493,7 @@ class AuthService {
+     newPassword,
+     forceChange = false,
+     actorUserId,
++    ipAddress,
+   } = {}) {
+     const user = await findLoginUser(usernameOrEmail, tenantUuid);
+     if (!user)
+@@ -461,6 +515,14 @@ class AuthService {
+       { forceRotationOnNextLogin: forceChange },
+     );
+ 
++    logAudit({
++      tenantUuid,
++      actorUserId: actorUserId || user.user_id,
++      action: forceChange ? "PASSWORD_FORCE_CHANGE" : "PASSWORD_CHANGE",
++      targetResource: user.user_uuid,
++      ipAddress,
++    });
++
+     return {
+       userId: user.user_id,
+       passwordUpdated: true,
+@@ -469,7 +531,7 @@ class AuthService {
+     };
+   }
+ 
+-  async logout(refreshToken) {
++  async logout(refreshToken, { ipAddress } = {}) {
+     const tokenHash = tokenService.hashRefreshToken(refreshToken);
+     const record = await RefreshTokens.findOne({
+       where: { token_hash: tokenHash },
+@@ -482,6 +544,18 @@ class AuthService {
+       { status: "REVOKED", revoked_on: now },
+       { where: { session_id: record.session_id } },
+     );
++
++    const user = await Users.findByPk(record.user_id);
++    if (user) {
++      logAudit({
++        tenantUuid: user.tenant_uuid,
++        actorUserId: user.user_id,
++        action: "LOGOUT",
++        targetResource: user.user_uuid,
++        ipAddress,
++      });
++    }
++
+     return { loggedOut: true };
+   }
+ }
+diff --git a/tests/audit-service.test.js b/tests/audit-service.test.js
+index f346b6a..b2864fc 100644
+--- a/tests/audit-service.test.js
++++ b/tests/audit-service.test.js
+@@ -14,6 +14,7 @@ test('audit service persists the complete administrative event', async () => {
+ 
+   try {
+     await auditService.writeEvent({
++      tenantUuid: 'a1b2c3d4-e5f6-4a5b-8c7d-9e0f1a2b3c4d',
+       actorUserId: 7,
+       action: 'POST /users',
+       targetResource: '/users/42',
+@@ -22,6 +23,7 @@ test('audit service persists the complete administrative event', async () => {
+     });
+ 
+     assert.deepEqual(values, {
++      tenant_uuid: 'a1b2c3d4-e5f6-4a5b-8c7d-9e0f1a2b3c4d',
+       actor_user_id: 7,
+       action: 'POST /users',
+       target_resource: '/users/42',
+@@ -32,3 +34,65 @@ test('audit service persists the complete administrative event', async () => {
+     db.AuditLogs.create = originalCreate;
+   }
+ });
++
++test('audit service rejects writing an event without a tenantUuid', async () => {
++  await assert.rejects(
++    () => auditService.writeEvent({
++      actorUserId: 7,
++      action: 'POST /users',
++      targetResource: '/users/42',
++      changes: { status: 'ACTIVE' },
++      ipAddress: '127.0.0.1'
++    }),
++    /tenantUuid/
++  );
++});
++
++test('audit service scopes reads to the tenant and joins actor username + tenant name', async () => {
++  const tenantUuid = 'a1b2c3d4-e5f6-4a5b-8c7d-9e0f1a2b3c4d';
++  const originalFindAndCountAll = db.AuditLogs.findAndCountAll;
++  let capturedQuery;
++
++  db.AuditLogs.findAndCountAll = async (query) => {
++    capturedQuery = query;
++    return {
++      count: 1,
++      rows: [
++        {
++          get: () => ({
++            audit_id: 99,
++            tenant_uuid: tenantUuid,
++            actor_user_id: 7,
++            action: 'LOGIN',
++            target_resource: 'user-uuid-1',
++            changes: null,
++            ip_address: '127.0.0.1',
++            created_on: new Date('2026-01-01T00:00:00Z'),
++            actor: { username: 'jdoe' },
++            tenant: { tenantName: 'Acme Health' }
++          })
++        }
++      ]
++    };
++  };
++
++  try {
++    const page = await auditService.getAuditLogs(tenantUuid, { page: 1, limit: 10 });
++
++    assert.equal(capturedQuery.where.tenant_uuid, tenantUuid);
++    assert.deepEqual(page.data[0], {
++      auditId: 99,
++      tenantUuid,
++      tenantName: 'Acme Health',
++      actorUserId: 7,
++      username: 'jdoe',
++      action: 'LOGIN',
++      targetResource: 'user-uuid-1',
++      changes: null,
++      ipAddress: '127.0.0.1',
++      createdOn: new Date('2026-01-01T00:00:00Z')
++    });
++  } finally {
++    db.AuditLogs.findAndCountAll = originalFindAndCountAll;
++  }
++});

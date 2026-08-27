@@ -22,7 +22,7 @@ exports.getUserById = async (req, res, next) => {
 
 exports.createUser = async (req, res, next) => {
   try {
-    const user = await userService.createUser(req.body, req.auth.tenantUuid, req.auth.userId);
+    const user = await userService.createUser(req.body, req.auth.userId);
     return res.status(201).json(user);
   } catch (error) {
     return next(error);

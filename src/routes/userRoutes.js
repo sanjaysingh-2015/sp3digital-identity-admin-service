@@ -13,6 +13,7 @@ const userListQuerySchema = paginationQuerySchema({
 const userRoleParamSchema = Joi.object({ userId: id, userRoleId: id });
 
 const userSchema = Joi.object({
+  tenantUuid: Joi.string().trim().min(3).max(200).required(), 
   username: Joi.string().trim().min(3).max(100).required(),
   email: Joi.string().email().max(320).required(),
   firstName: Joi.string().trim().max(100).required(),

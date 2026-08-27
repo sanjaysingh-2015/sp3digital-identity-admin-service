@@ -18,11 +18,12 @@ function auditWrites(req, res, next) {
     if (res.statusCode < 200 || res.statusCode >= 300) return;
 
     auditService.writeEvent({
+      tenantUuid: req.auth.tenantUuid,
       actorUserId: req.auth.userId,
       action: `${req.method} ${req.baseUrl}${req.path}`,
       targetResource: req.baseUrl,
       ipAddress: req.auth.ipAddress,
-      changes: { tenantUuid: req.auth.tenantUuid, params: req.params, body: redact(req.body) }
+      changes: { params: req.params, body: redact(req.body) }
     }).catch((error) => console.error('Unable to write audit event', error));
   });
   next();

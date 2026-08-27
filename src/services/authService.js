@@ -15,6 +15,7 @@ const credentialService = require("./credentialService");
 const mfaService = require("./mfaService");
 const securityPolicyService = require("./securityPolicyService");
 const tokenService = require("../security/tokenService");
+const auditService = require("./auditService");
 
 const MFA_CHALLENGE_AUDIENCE = "mfa_challenge";
 const MFA_CHALLENGE_TTL_SECONDS = Number(
@@ -27,6 +28,21 @@ function authError(code, message, statusCode = 401) {
   error.code = code;
   error.expose = true;
   return error;
+}
+
+/**
+ * These auth-flow actions (login, MFA completion, refresh, logout, password
+ * change) all happen *before* a bearer token exists, so they never pass
+ * through app.js's generic `auditWrites` middleware (which requires
+ * req.auth.userId). tenantUuid is the one piece of tenant context available
+ * at every one of these call sites, so it's what makes each entry
+ * attributable even without an authenticated request. Fire-and-forget, same
+ * as the middleware — an audit-write failure must never block a login.
+ */
+function logAudit({ tenantUuid, actorUserId, action, targetResource, changes, ipAddress }) {
+  auditService
+    .writeEvent({ tenantUuid, actorUserId, action, targetResource, changes, ipAddress })
+    .catch((error) => console.error("Unable to write audit event", error));
 }
 
 /** Same role -> permission resolution authentication.js's authorize() uses, so tokens carry claims that will actually pass authorization. */
@@ -248,6 +264,15 @@ class AuthService {
           expiresIn: MFA_CHALLENGE_TTL_SECONDS,
         },
       );
+
+      logAudit({
+        tenantUuid,
+        actorUserId: user.user_id,
+        action: "LOGIN_MFA_CHALLENGE_ISSUED",
+        targetResource: user.user_uuid,
+        ipAddress,
+      });
+
       return {
         mfaRequired: true,
         mfaToken,
@@ -255,7 +280,7 @@ class AuthService {
       };
     }
 
-    return sequelize.transaction((transaction) =>
+    const result = await sequelize.transaction((transaction) =>
       issueTokens(
         {
           user,
@@ -268,6 +293,16 @@ class AuthService {
         transaction,
       ),
     );
+
+    logAudit({
+      tenantUuid,
+      actorUserId: user.user_id,
+      action: "LOGIN",
+      targetResource: user.user_uuid,
+      ipAddress,
+    });
+
+    return result;
   }
 
   /** Step 2 of login when MFA is required: exchanges the challenge + TOTP code for real tokens. */
@@ -294,7 +329,7 @@ class AuthService {
 
     await mfaService.verifyLoginCode(user.user_id, code); // throws on bad/expired code, enforces lockout
 
-    return sequelize.transaction((transaction) =>
+    const result = await sequelize.transaction((transaction) =>
       issueTokens(
         {
           user,
@@ -307,6 +342,16 @@ class AuthService {
         transaction,
       ),
     );
+
+    logAudit({
+      tenantUuid: claims.tenant_uuid,
+      actorUserId: user.user_id,
+      action: "LOGIN_MFA_COMPLETE",
+      targetResource: user.user_uuid,
+      ipAddress,
+    });
+
+    return result;
   }
 
   /**
@@ -407,6 +452,14 @@ class AuthService {
         { where: { session_id: record.session_id }, transaction },
       );
 
+      logAudit({
+        tenantUuid: user.tenant_uuid,
+        actorUserId: user.user_id,
+        action: "TOKEN_REFRESH",
+        targetResource: user.user_uuid,
+        ipAddress,
+      });
+
       return {
         tokenType: "Bearer",
         accessToken,
@@ -440,6 +493,7 @@ class AuthService {
     newPassword,
     forceChange = false,
     actorUserId,
+    ipAddress,
   } = {}) {
     const user = await findLoginUser(usernameOrEmail, tenantUuid);
     if (!user)
@@ -461,6 +515,14 @@ class AuthService {
       { forceRotationOnNextLogin: forceChange },
     );
 
+    logAudit({
+      tenantUuid,
+      actorUserId: actorUserId || user.user_id,
+      action: forceChange ? "PASSWORD_FORCE_CHANGE" : "PASSWORD_CHANGE",
+      targetResource: user.user_uuid,
+      ipAddress,
+    });
+
     return {
       userId: user.user_id,
       passwordUpdated: true,
@@ -469,7 +531,7 @@ class AuthService {
     };
   }
 
-  async logout(refreshToken) {
+  async logout(refreshToken, { ipAddress } = {}) {
     const tokenHash = tokenService.hashRefreshToken(refreshToken);
     const record = await RefreshTokens.findOne({
       where: { token_hash: tokenHash },
@@ -482,6 +544,18 @@ class AuthService {
       { status: "REVOKED", revoked_on: now },
       { where: { session_id: record.session_id } },
     );
+
+    const user = await Users.findByPk(record.user_id);
+    if (user) {
+      logAudit({
+        tenantUuid: user.tenant_uuid,
+        actorUserId: user.user_id,
+        action: "LOGOUT",
+        targetResource: user.user_uuid,
+        ipAddress,
+      });
+    }
+
     return { loggedOut: true };
   }
 }
