@@ -30,7 +30,7 @@ function toResponseShape(record) {
   return {
     tenantUuid: plain.tenantUuid ?? plain.tenant_uuid,
     tenantCode: plain.tenantCode ?? plain.tenant_code,
-    tenantrName: plain.tenantName ?? plain.tenant_name,
+    tenantName: plain.tenantName ?? plain.tenant_name,
     status: plain.status,
     createdOn: plain.createdOn ?? plain.created_on,
     modifiedOn: plain.modifiedOn ?? plain.modified_on,
@@ -95,15 +95,9 @@ class TenantService {
       page: safePage,
     } = toSequelizePage({ page, limit });
     const where = {};
-    if (tenantUuid) where.tenant_uuid = tenantUuid;
     if (status) where.status = status;
-    if (tenantType) where.tenant_type = tenantType;
-    if (search) {
-      where[Op.or] = [
-        { tenant_name: { [Op.like]: `%${search}%` } },
-        { tenant_type: { [Op.like]: `%${search}%` } },
-      ];
-    }
+    if (search) where.tenant_name = { [Op.like]: `%${search}%` } 
+    
     const result = await IdentityTenants.findAndCountAll({
       where,
       attributes: TENANT_ATTRIBUTES,
