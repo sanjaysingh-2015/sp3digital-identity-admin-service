@@ -2,6 +2,17 @@ const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/authorizationController');
 const { Joi, validate } = require('../middleware/validate');
+const { paginationQuerySchema } = require('../utils/pagination');
+
+const roleListQuerySchema = paginationQuerySchema({
+  status: Joi.string().valid('ACTIVE', 'INACTIVE', 'DELETED'),
+  search: Joi.string().trim().max(150)
+});
+
+const permissionListQuerySchema = paginationQuerySchema({
+  status: Joi.string().valid('ACTIVE', 'INACTIVE', 'DELETED'),
+  search: Joi.string().trim().max(150)
+});
 
 const roleSchema = Joi.object({
   roleType: Joi.string().trim().pattern(/^[A-Z0-9_]+$/).max(100).required(),
@@ -67,7 +78,7 @@ const permissionAssignmentUpdateSchema = Joi.object({
  *       201:
  *         description: Role created successfully
  */
-router.get('/roles', controller.getRoles);
+router.get('/roles', validate(roleListQuerySchema, 'query'), controller.getRoles);
 router.get('/roles/:roleId', controller.getRoleById);
 router.post('/roles', validate(roleSchema), controller.createRole);
 router.patch('/roles/:roleId', validate(roleSchema), controller.updateRole);
@@ -83,7 +94,7 @@ router.patch('/roles/:roleId/status',  controller.deleteRole)
  *       200:
  *         description: List of permissions
  */
-router.get('/permissions', controller.getPermissions);
+router.get('/permissions', validate(permissionListQuerySchema, 'query'), controller.getPermissions);
 router.get('/permissions/:permissionId', controller.getPermissionById);
 router.post('/permissions', validate(permissionSchema), controller.createPermission);
 router.patch('/permissions/:permissionId', validate(permissionEditSchema), controller.updatePermission);

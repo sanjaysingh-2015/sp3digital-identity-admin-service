@@ -64,7 +64,14 @@ class AuthorizationController {
 
   async getPermissions(req, res, next) {
     try {
-      const permissions = await authorizationService.getPermissions();
+      const { page, limit, status, search } = req.query;
+
+      const permissions = await authorizationService.getPermissions({
+        page,
+        limit,
+        status,
+        search,
+      });
       return res.status(200).json(permissions);
     } catch (error) {
       return next(error);
