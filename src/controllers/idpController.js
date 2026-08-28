@@ -3,7 +3,7 @@ const {
   validateCreatePayload,
   validateUpdatePayload,
   validateStatusPayload,
-} = require('../services/identityProvider.validation');
+} = require('../validations/identityProvider.validation');
 
 exports.getIdentityProviders = async (req, res, next) => {
   try {
