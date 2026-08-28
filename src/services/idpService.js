@@ -9,7 +9,7 @@ const {
   assertMutable,
   assertNotRevoked,
 } = require("../utils/lifecycle");
-const { ConflictError } = require("./identityProvider.validation");
+const { ConflictError } = require("../validations/identityProvider.validation");
 const CodeUtil = require("../utils/code.util");
 
 // Response shape: client_secret_encrypted itself is never returned — only
