@@ -8,7 +8,11 @@ const { authenticate, authorize } = require('./middleware/authentication');
 const { auditWrites } = require('./middleware/audit');
 const authController = require('./controllers/authController');
 const publicController = require('./controllers/publicController');
+const { validate } = require('./middleware/validate');
+const { registerOrganizationSchema } = require('./validations/registration.validation');
 const wellKnownRoutes = require('./routes/wellKnownRoutes');
+const rateLimit = require('express-rate-limit');
+
 
 const app = express();
 
@@ -34,6 +38,23 @@ app.use(express.json());
 
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use('/.well-known', wellKnownRoutes);
+
+// Self-service org registration — unauthenticated by design (there's no
+// token to check yet), so it gets its own IP-based rate limiter instead,
+// same reasoning as authRoutes.js's loginRateLimiter.
+const registerOrganizationRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: { code: 'RATE_LIMITED', message: 'Too many registration attempts. Try again later.' } },
+});
+app.post(
+  '/api/v1/identity-admin/public/register-organization',
+  registerOrganizationRateLimiter,
+  validate(registerOrganizationSchema),
+  publicController.registerOrganization
+);
 
 const authorizeAdminRequest = (req, res, next) => {
   const permission = req.method === 'GET' || req.method === 'HEAD'

@@ -124,6 +124,19 @@ router.post('/token/refresh', loginRateLimiter, validate(refreshSchema), control
  *   post:
  *     summary: Revokes a refresh token and its session. Idempotent.
  *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [refreshToken]
+ *             properties:
+ *               refreshToken: { type: string }
+ *     responses:
+ *       200:
+ *         description: "{ loggedOut: true } — returned even if the token was already revoked/unknown"
+ *       400: { $ref: '#/components/responses/ValidationError' }
  */
 router.post('/logout', validate(refreshSchema), controller.logout);
 

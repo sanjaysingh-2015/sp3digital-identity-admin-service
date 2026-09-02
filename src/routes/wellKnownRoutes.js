@@ -9,7 +9,7 @@ const tokenService = require('../security/tokenService');
  *     summary: Public JSON Web Key Set
  *     description: Returns the public RSA signing key used to verify JWTs issued by the Identity Admin Service.
  *     tags:
- *       - Authentication
+ *       - Well-Known
  *     responses:
  *       200:
  *         description: RFC 7517 JSON Web Key Set

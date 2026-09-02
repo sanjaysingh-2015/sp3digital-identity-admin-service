@@ -26,7 +26,7 @@ class ResourceActionService {
     if (status) where.status = status;
     if (search) {
       where[Op.or] = [
-        { role_name: { [Op.like]: `%${search}%` } },
+        { resource_name: { [Op.like]: `%${search}%` } },
         { description: { [Op.like]: `%${search}%` } },
       ];
     }
@@ -158,7 +158,7 @@ class ResourceActionService {
     if (status) where.status = status;
     if (search) {
       where[Op.or] = [
-        { role_name: { [Op.like]: `%${search}%` } },
+        { action_name: { [Op.like]: `%${search}%` } },
         { description: { [Op.like]: `%${search}%` } },
       ];
     }

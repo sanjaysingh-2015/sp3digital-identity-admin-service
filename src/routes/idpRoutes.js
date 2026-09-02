@@ -20,23 +20,46 @@ const providerSchema = Joi.object({
 const statusSchema = Joi.object({ status: Joi.string().valid('ACTIVE', 'INACTIVE').required() });
 
 /**
- * @swagger
- * tags:
- *   name: Identity Providers
- *   description: Management of Auth0, Okta, Cognito, SAML, and OIDC Identity Providers
- */
-
-/**
- * @swagger
+ * @openapi
  * /api/v1/identity-admin/identity-providers:
  *   get:
- *     summary: Get all identity providers
+ *     summary: List identity providers (paginated, filterable, searchable)
  *     tags: [Identity Providers]
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20 }
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [ACTIVE, INACTIVE, DISABLED] }
+ *       - in: query
+ *         name: providerType
+ *         schema: { type: string, enum: [OIDC, SAML, OAUTH2, LDAP] }
+ *       - in: query
+ *         name: tenantUuid
+ *         schema: { type: string }
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *         description: Matches against provider name and provider type
  *     responses:
  *       200:
- *         description: List of configured identity providers
+ *         description: Paginated list of identity providers. client_secret_encrypted is never returned.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: array
+ *                   items: { type: object }
+ *                 pagination: { $ref: '#/components/schemas/PaginationMeta' }
+ *       400: { $ref: '#/components/responses/ValidationError' }
  *   post:
- *     summary: Create a new identity provider
+ *     summary: Create an identity provider
  *     tags: [Identity Providers]
  *     requestBody:
  *       required: true
@@ -45,45 +68,138 @@ const statusSchema = Joi.object({ status: Joi.string().valid('ACTIVE', 'INACTIVE
  *           schema:
  *             type: object
  *             required:
- *               - code
- *               - name
- *               - type
+ *               - providerName
+ *               - providerType
  *             properties:
- *               code:
+ *               tenantUuid:
  *                 type: string
- *                 example: "AUTH0_PRIMARY"
- *               name:
+ *               providerCode:
  *                 type: string
+ *                 maxLength: 100
+ *                 description: Auto-generated from providerName if omitted
+ *                 example: "IDP_AUTH0_PRIMARY"
+ *               providerName:
+ *                 type: string
+ *                 maxLength: 250
  *                 example: "Primary Auth0"
- *               type:
+ *               providerType:
  *                 type: string
+ *                 enum: [OIDC, SAML, OAUTH2, LDAP]
  *                 example: "OIDC"
+ *               issuerUrl:
+ *                 type: string
+ *                 example: "https://example.us.auth0.com/"
+ *               authorizationUrl:
+ *                 type: string
+ *                 example: "https://example.us.auth0.com/authorize"
+ *               tokenUrl:
+ *                 type: string
+ *                 example: "https://example.us.auth0.com/oauth/token"
+ *               jwksUrl:
+ *                 type: string
+ *                 example: "https://example.us.auth0.com/.well-known/jwks.json"
+ *               clientId:
+ *                 type: string
+ *                 example: "client_12345"
+ *               clientSecret:
+ *                 type: string
+ *                 description: Write-only. Encrypted at rest; never returned by any endpoint.
+ *               scopes:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["openid", "profile", "email"]
  *               configuration:
  *                 type: object
- *                 properties:
- *                   issuerUrl:
- *                     type: string
- *                     example: "https://example.us.auth0.com/"
- *                   authorizationUrl:
- *                     type: string
- *                     example: "https://example.us.auth0.com/authorize"
- *                   tokenUrl:
- *                     type: string
- *                     example: "https://example.us.auth0.com/oauth/token"
- *                   jwksUrl:
- *                     type: string
- *                     example: "https://example.us.auth0.com/.well-known/jwks.json"
- *                   clientId:
- *                     type: string
- *                     example: "client_12345"
- *                   scopes:
- *                     type: array
- *                     items:
- *                       type: string
- *                     example: ["openid", "profile", "email"]
+ *                 description: Free-form additional provider-specific settings
  *     responses:
  *       201:
- *         description: Identity provider created successfully
+ *         description: Identity provider created
+ *       400: { $ref: '#/components/responses/ValidationError' }
+ *       409:
+ *         description: providerCode or providerName already in use for this tenant
+ * /api/v1/identity-admin/identity-providers/{identityProviderId}:
+ *   get:
+ *     summary: Get an identity provider by ID
+ *     tags: [Identity Providers]
+ *     parameters:
+ *       - in: path
+ *         name: identityProviderId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Identity provider detail object
+ *       404: { $ref: '#/components/responses/NotFound' }
+ *   put:
+ *     summary: Replace an identity provider's configuration
+ *     tags: [Identity Providers]
+ *     parameters:
+ *       - in: path
+ *         name: identityProviderId
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             minProperties: 1
+ *             properties:
+ *               providerCode: { type: string, maxLength: 100 }
+ *               providerName: { type: string, maxLength: 250 }
+ *               providerType: { type: string, enum: [OIDC, SAML, OAUTH2, LDAP] }
+ *               issuerUrl: { type: string }
+ *               authorizationUrl: { type: string }
+ *               tokenUrl: { type: string }
+ *               jwksUrl: { type: string }
+ *               clientId: { type: string }
+ *               clientSecret: { type: string, description: Write-only; omit to leave unchanged }
+ *               scopes: { type: array, items: { type: string } }
+ *               configuration: { type: object }
+ *     responses:
+ *       200:
+ *         description: Identity provider updated
+ *       400: { $ref: '#/components/responses/ValidationError' }
+ *       404: { $ref: '#/components/responses/NotFound' }
+ *       409:
+ *         description: providerCode or providerName already in use for this tenant
+ *   delete:
+ *     summary: Delete an identity provider
+ *     tags: [Identity Providers]
+ *     parameters:
+ *       - in: path
+ *         name: identityProviderId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Identity provider deleted
+ *       404: { $ref: '#/components/responses/NotFound' }
+ * /api/v1/identity-admin/identity-providers/{identityProviderId}/status:
+ *   patch:
+ *     summary: Activate or deactivate an identity provider
+ *     tags: [Identity Providers]
+ *     parameters:
+ *       - in: path
+ *         name: identityProviderId
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [status]
+ *             properties:
+ *               status: { type: string, enum: [ACTIVE, INACTIVE, DISABLED], example: "ACTIVE" }
+ *     responses:
+ *       200:
+ *         description: Provider status updated
+ *       400: { $ref: '#/components/responses/ValidationError' }
+ *       404: { $ref: '#/components/responses/NotFound' }
  */
 router.get('/', idpController.getIdentityProviders);
 router.get('/:identityProviderId', idpController.getIdentityProviderById);
@@ -93,10 +209,10 @@ router.delete('/:identityProviderId', idpController.deleteIdentityProvider);
 router.patch('/:identityProviderId/status', idpController.updateStatus);
 
 /**
- * @swagger
+ * @openapi
  * /api/v1/identity-admin/identity-providers/{id}/test:
  *   post:
- *     summary: Test identity provider configuration connectivity
+ *     summary: Test identity provider configuration connectivity (issuer reachability, JWKS fetch)
  *     tags: [Identity Providers]
  *     parameters:
  *       - in: path
@@ -107,38 +223,8 @@ router.patch('/:identityProviderId/status', idpController.updateStatus);
  *     responses:
  *       200:
  *         description: Test results indicating status of issuer, configuration, and JWKS
+ *       404: { $ref: '#/components/responses/NotFound' }
  */
 router.post('/:id/test', idpController.testProvider);
-
-// /**
-//  * @swagger
-//  * /api/v1/identity-admin/identity-providers/{id}/status:
-//  *   patch:
-//  *     summary: Activate or deactivate an identity provider
-//  *     tags: [Identity Providers]
-//  *     parameters:
-//  *       - in: path
-//  *         name: id
-//  *         required: true
-//  *         schema:
-//  *           type: integer
-//  *     requestBody:
-//  *       required: true
-//  *       content:
-//  *         application/json:
-//  *           schema:
-//  *             type: object
-//  *             required:
-//  *               - status
-//  *             properties:
-//  *               status:
-//  *                 type: string
-//  *                 enum: [ACTIVE, INACTIVE]
-//  *                 example: "ACTIVE"
-//  *     responses:
-//  *       200:
-//  *         description: Provider status updated successfully
-//  */
-// router.patch('/:id/status', validate(statusSchema), idpController.updateStatus);
 
 module.exports = router;
