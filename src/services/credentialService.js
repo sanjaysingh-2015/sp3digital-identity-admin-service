@@ -78,6 +78,10 @@ class CredentialService {
     };
   }
 
+  async checkPasswordComplexity(password,tenantUuid) {
+    const policy = await securityPolicyService.getActivePolicy(tenantUuid);
+    validatePasswordComplexity(password, policy);
+  }
   /**
    * Sets/rotates a user's password. Enforces the tenant's active security
    * policy: complexity, reuse against passwordHistoryCount prior hashes,

@@ -1,0 +1,2655 @@
+diff --git a/src/config/swagger.js b/src/config/swagger.js
+index d9d6a07..01a65d7 100644
+--- a/src/config/swagger.js
++++ b/src/config/swagger.js
+@@ -21,6 +21,72 @@ const options = {
+         description: NODE_ENV,
+       },
+     ],
++    tags: [
++      { name: 'Authentication', description: 'Login, MFA, token refresh, logout, and password changes.' },
++      { name: 'Users', description: 'Tenant user accounts.' },
++      { name: 'Roles', description: 'RBAC roles.' },
++      { name: 'Permissions', description: 'RBAC permissions and role-permission assignment.' },
++      { name: 'Identity Providers', description: 'SSO / federated identity provider configuration.' },
++      { name: 'Audit', description: 'Administrative audit trail.' },
++      { name: 'Access Control', description: 'User-to-organization and user-to-facility scoping.' },
++      { name: 'API Clients', description: 'Machine-to-machine API client credentials.' },
++      { name: 'OAuth Clients', description: 'OAuth2 client registrations.' },
++      { name: 'MFA', description: 'Multi-factor authentication enrollment and management.' },
++      { name: 'Sessions', description: 'Active user sessions.' },
++      { name: 'Service Accounts', description: 'Non-human service identities.' },
++      { name: 'Security Policy', description: 'Tenant-level password/lockout policy configuration.' },
++      { name: 'Auth Config', description: 'Tenant-level authentication configuration.' },
++      { name: 'Resource Actions', description: 'Catalog of resources and actions available for permissions.' },
++      { name: 'Tenants', description: 'Tenant lookup.' },
++      { name: 'Public', description: 'Unauthenticated, publicly-reachable endpoints.' },
++      { name: 'Well-Known', description: 'OIDC/OAuth well-known discovery documents.' },
++    ],
++    components: {
++      securitySchemes: {
++        bearerAuth: {
++          type: 'http',
++          scheme: 'bearer',
++          bearerFormat: 'JWT',
++        },
++      },
++      schemas: {
++        Error: {
++          type: 'object',
++          properties: {
++            code: { type: 'string', example: 'VALIDATION_ERROR' },
++            message: { type: 'string', example: 'usernameOrEmail is required' },
++          },
++        },
++        PaginationMeta: {
++          type: 'object',
++          properties: {
++            page: { type: 'integer', example: 1 },
++            limit: { type: 'integer', example: 20 },
++            totalItems: { type: 'integer', example: 123 },
++            totalPages: { type: 'integer', example: 7 },
++          },
++        },
++      },
++      responses: {
++        ValidationError: {
++          description: 'Request failed validation',
++          content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
++        },
++        Unauthorized: {
++          description: 'Missing or invalid bearer token',
++          content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
++        },
++        Forbidden: {
++          description: 'Authenticated caller lacks the required permission',
++          content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
++        },
++        NotFound: {
++          description: 'Resource not found',
++          content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
++        },
++      },
++    },
++    security: [{ bearerAuth: [] }],
+   },
+   apis: ['./src/routes/*.js'], // Path to route files containing JSDoc annotations
+ };
+diff --git a/src/routes/accessControlRoutes.js b/src/routes/accessControlRoutes.js
+index 7b3ff01..9de7a6f 100644
+--- a/src/routes/accessControlRoutes.js
++++ b/src/routes/accessControlRoutes.js
+@@ -11,7 +11,7 @@ const facilitySchema = Joi.object({ facilityId: Joi.number().integer().positive(
+  * /api/v1/identity-admin/users/{userId}/organizations:
+  *   post:
+  *     summary: Assign user to Organization
+- *     tags: [Organization Access]
++ *     tags: [Access Control]
+  *     parameters:
+  *       - in: path
+  *         name: userId
+@@ -28,6 +28,8 @@ const facilitySchema = Joi.object({ facilityId: Joi.number().integer().positive(
+  *     responses:
+  *       201:
+  *         description: Organization access granted
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ *       404: { $ref: '#/components/responses/NotFound' }
+  */
+ router.post('/users/:userId/organizations', validate(organizationSchema), controller.assignOrganization);
+ 
+@@ -36,7 +38,7 @@ router.post('/users/:userId/organizations', validate(organizationSchema), contro
+  * /api/v1/identity-admin/users/{userId}/facilities:
+  *   post:
+  *     summary: Assign user to Facility
+- *     tags: [Facility Access]
++ *     tags: [Access Control]
+  *     parameters:
+  *       - in: path
+  *         name: userId
+@@ -53,6 +55,8 @@ router.post('/users/:userId/organizations', validate(organizationSchema), contro
+  *     responses:
+  *       201:
+  *         description: Facility access granted
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ *       404: { $ref: '#/components/responses/NotFound' }
+  */
+ router.post('/users/:userId/facilities', validate(facilitySchema), controller.assignFacility);
+ 
+diff --git a/src/routes/apiClientRoutes.js b/src/routes/apiClientRoutes.js
+index 5eefba7..ff87e18 100644
+--- a/src/routes/apiClientRoutes.js
++++ b/src/routes/apiClientRoutes.js
+@@ -34,13 +34,39 @@ const idParamSchema = Joi.object({ id });
+  * @openapi
+  * /api/v1/identity-admin/api-clients:
+  *   get:
+- *     summary: Retrieve registered machine-to-machine API Clients
++ *     summary: List API clients (paginated, filterable, searchable)
+  *     tags: [API Clients]
++ *     parameters:
++ *       - in: query
++ *         name: page
++ *         schema: { type: integer, default: 1 }
++ *       - in: query
++ *         name: limit
++ *         schema: { type: integer, default: 20 }
++ *       - in: query
++ *         name: status
++ *         schema: { type: string, enum: [ACTIVE, SUSPENDED, EXPIRED, REVOKED] }
++ *       - in: query
++ *         name: clientType
++ *         schema: { type: string, enum: [CONFIDENTIAL, PUBLIC] }
++ *       - in: query
++ *         name: search
++ *         schema: { type: string }
+  *     responses:
+  *       200:
+- *         description: List of API clients
++ *         description: Paginated list of API clients (client secret is never returned)
++ *         content:
++ *           application/json:
++ *             schema:
++ *               type: object
++ *               properties:
++ *                 data:
++ *                   type: array
++ *                   items: { type: object }
++ *                 pagination: { $ref: '#/components/schemas/PaginationMeta' }
++ *       400: { $ref: '#/components/responses/ValidationError' }
+  *   post:
+- *     summary: Register a new API Client with custom rate limits
++ *     summary: Register an API client
+  *     tags: [API Clients]
+  *     requestBody:
+  *       required: true
+@@ -50,12 +76,63 @@ const idParamSchema = Joi.object({ id });
+  *             type: object
+  *             required: [clientName]
+  *             properties:
+- *               clientName: { type: string, example: "Billing Integration Service" }
+- *               rateLimit: { type: integer, example: 5000 }
+- *               ipWhitelist: { type: array, items: { type: string }, example: ["192.168.1.50"] }
++ *               clientName: { type: string, minLength: 3, example: "Billing Integration Service" }
++ *               clientCode: { type: string, pattern: '^[A-Z0-9_]+$', example: "BILLING_INTEGRATION" }
++ *               description: { type: string, nullable: true }
++ *               clientType: { type: string, enum: [CONFIDENTIAL, PUBLIC], default: CONFIDENTIAL }
++ *               organizationId: { type: integer, example: 101 }
++ *               allowedIps:
++ *                 type: array
++ *                 items: { type: string }
++ *                 example: ["192.168.1.50"]
++ *               allowedOrigins:
++ *                 type: array
++ *                 items: { type: string }
++ *                 example: ["https://app.example.com"]
++ *               expiresOn: { type: string, format: date-time, nullable: true }
+  *     responses:
+  *       201:
+- *         description: API client registered successfully
++ *         description: API client registered. The client secret is returned once, only in this response.
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ * /api/v1/identity-admin/api-clients/{id}:
++ *   get:
++ *     summary: Get an API client by ID
++ *     tags: [API Clients]
++ *     parameters:
++ *       - in: path
++ *         name: id
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: API client detail object
++ *       404: { $ref: '#/components/responses/NotFound' }
++ *   patch:
++ *     summary: Update an API client's metadata
++ *     tags: [API Clients]
++ *     parameters:
++ *       - in: path
++ *         name: id
++ *         required: true
++ *         schema: { type: integer }
++ *     requestBody:
++ *       required: true
++ *       content:
++ *         application/json:
++ *           schema:
++ *             type: object
++ *             minProperties: 1
++ *             properties:
++ *               clientName: { type: string, minLength: 3 }
++ *               description: { type: string, nullable: true }
++ *               allowedIps: { type: array, items: { type: string } }
++ *               allowedOrigins: { type: array, items: { type: string } }
++ *               expiresOn: { type: string, format: date-time, nullable: true }
++ *     responses:
++ *       200:
++ *         description: API client updated
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ *       404: { $ref: '#/components/responses/NotFound' }
+  */
+ router.get('/', validate(listQuerySchema, 'query'), controller.getApiClients);
+ router.post('/', validate(apiClientSchema), controller.createApiClient);
+@@ -66,7 +143,7 @@ router.patch('/:id', validate(idParamSchema, 'params'), validate(apiClientUpdate
+  * @openapi
+  * /api/v1/identity-admin/api-clients/{id}/revoke:
+  *   patch:
+- *     summary: Revoke an API client key
++ *     summary: Permanently revoke an API client's credentials (irreversible)
+  *     tags: [API Clients]
+  *     parameters:
+  *       - in: path
+@@ -75,7 +152,8 @@ router.patch('/:id', validate(idParamSchema, 'params'), validate(apiClientUpdate
+  *         schema: { type: integer }
+  *     responses:
+  *       200:
+- *         description: API key revoked successfully
++ *         description: API client revoked
++ *       404: { $ref: '#/components/responses/NotFound' }
+  */
+ router.patch('/:id/revoke', controller.revokeApiClient);
+ 
+@@ -85,14 +163,41 @@ router.patch('/:id/revoke', controller.revokeApiClient);
+  *   patch:
+  *     summary: Temporarily suspend an API client (reversible)
+  *     tags: [API Clients]
++ *     parameters:
++ *       - in: path
++ *         name: id
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: API client suspended
++ *       404: { $ref: '#/components/responses/NotFound' }
+  * /api/v1/identity-admin/api-clients/{id}/reactivate:
+  *   patch:
+  *     summary: Reactivate a suspended API client
+  *     tags: [API Clients]
++ *     parameters:
++ *       - in: path
++ *         name: id
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: API client reactivated
++ *       404: { $ref: '#/components/responses/NotFound' }
+  * /api/v1/identity-admin/api-clients/{id}/rotate-secret:
+  *   post:
+  *     summary: Rotate the client secret; revokes tokens issued under the old secret
+  *     tags: [API Clients]
++ *     parameters:
++ *       - in: path
++ *         name: id
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: Secret rotated. The new secret is returned once, only in this response.
++ *       404: { $ref: '#/components/responses/NotFound' }
+  */
+ router.patch('/:id/deactivate', controller.deactivateApiClient);
+ router.patch('/:id/reactivate', controller.reactivateApiClient);
+diff --git a/src/routes/auditRoutes.js b/src/routes/auditRoutes.js
+index 6c1e8a4..c147a21 100644
+--- a/src/routes/auditRoutes.js
++++ b/src/routes/auditRoutes.js
+@@ -2,29 +2,55 @@ const express = require('express');
+ const router = express.Router();
+ const controller = require('../controllers/auditController');
+ const { Joi, validate } = require('../middleware/validate');
++const { paginationQuerySchema } = require('../utils/pagination');
+ 
+-const paginationSchema = Joi.object({
+-  limit: Joi.number().integer().min(1).max(500).default(100),
+-  offset: Joi.number().integer().min(0).default(0)
++const auditListQuerySchema = paginationQuerySchema({
++  search: Joi.string().trim().max(150)
+ });
+ 
+ /**
+  * @openapi
+  * /api/v1/identity-admin/audit-logs:
+  *   get:
+- *     summary: Retrieve system administrative audit logs
++ *     summary: List audit log entries for the caller's tenant (paginated, searchable by actor username)
+  *     tags: [Audit]
+  *     parameters:
+  *       - in: query
++ *         name: page
++ *         schema: { type: integer, default: 1 }
++ *       - in: query
+  *         name: limit
+- *         schema: { type: integer, default: 100 }
++ *         schema: { type: integer, default: 20 }
+  *       - in: query
+- *         name: offset
+- *         schema: { type: integer, default: 0 }
++ *         name: search
++ *         schema: { type: string }
++ *         description: Matches against the acting user's username
+  *     responses:
+  *       200:
+- *         description: Audit log records
++ *         description: Paginated list of audit entries, each joined with the acting user's username and the tenant's name
++ *         content:
++ *           application/json:
++ *             schema:
++ *               type: object
++ *               properties:
++ *                 data:
++ *                   type: array
++ *                   items:
++ *                     type: object
++ *                     properties:
++ *                       auditId: { type: integer, example: 123 }
++ *                       tenantUuid: { type: string, example: "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d" }
++ *                       tenantName: { type: string, example: "Default Enterprise Tenant" }
++ *                       actorUserId: { type: integer, example: 1 }
++ *                       username: { type: string, example: "superadmin" }
++ *                       action: { type: string, example: "LOGIN" }
++ *                       targetResource: { type: string, example: "11111111-2222-3333-4444-555555555555" }
++ *                       changes: { type: object, nullable: true }
++ *                       ipAddress: { type: string, example: "::1" }
++ *                       createdOn: { type: string, format: date-time }
++ *                 pagination: { $ref: '#/components/schemas/PaginationMeta' }
++ *       400: { $ref: '#/components/responses/ValidationError' }
+  */
+-router.get('/', validate(paginationSchema, 'query'), controller.getAuditLogs);
++router.get('/', validate(auditListQuerySchema, 'query'), controller.getAuditLogs);
+ 
+ module.exports = router;
+diff --git a/src/routes/authConfigRoutes.js b/src/routes/authConfigRoutes.js
+index f26eef3..a9d0dd1 100644
+--- a/src/routes/authConfigRoutes.js
++++ b/src/routes/authConfigRoutes.js
+@@ -16,7 +16,7 @@ const authConfigSchema = Joi.object({
+  * /api/v1/identity-admin/auth-configs/{tenantUuid}:
+  *   get:
+  *     summary: Retrieve authentication policy config by Tenant
+- *     tags: [Authentication Configuration]
++ *     tags: [Auth Config]
+  *     parameters:
+  *       - in: path
+  *         name: tenantUuid
+@@ -25,9 +25,11 @@ const authConfigSchema = Joi.object({
+  *     responses:
+  *       200:
+  *         description: Tenant Auth Config details
++ *       403: { $ref: '#/components/responses/Forbidden' }
++ *       404: { $ref: '#/components/responses/NotFound' }
+  *   put:
+  *     summary: Update tenant authentication configuration
+- *     tags: [Authentication Configuration]
++ *     tags: [Auth Config]
+  *     parameters:
+  *       - in: path
+  *         name: tenantUuid
+@@ -47,6 +49,9 @@ const authConfigSchema = Joi.object({
+  *     responses:
+  *       200:
+  *         description: Config updated successfully
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ *       403: { $ref: '#/components/responses/Forbidden' }
++ *       404: { $ref: '#/components/responses/NotFound' }
+  */
+ router.get('/:tenantUuid', tenantMatchesPath('tenantUuid'), controller.getConfig);
+ router.put('/:tenantUuid', tenantMatchesPath('tenantUuid'), validate(authConfigSchema), controller.updateConfig);
+diff --git a/src/routes/authRoutes.js b/src/routes/authRoutes.js
+index 92a8cc6..6b0e9c5 100644
+--- a/src/routes/authRoutes.js
++++ b/src/routes/authRoutes.js
+@@ -124,6 +124,19 @@ router.post('/token/refresh', loginRateLimiter, validate(refreshSchema), control
+  *   post:
+  *     summary: Revokes a refresh token and its session. Idempotent.
+  *     tags: [Authentication]
++ *     requestBody:
++ *       required: true
++ *       content:
++ *         application/json:
++ *           schema:
++ *             type: object
++ *             required: [refreshToken]
++ *             properties:
++ *               refreshToken: { type: string }
++ *     responses:
++ *       200:
++ *         description: "{ loggedOut: true } — returned even if the token was already revoked/unknown"
++ *       400: { $ref: '#/components/responses/ValidationError' }
+  */
+ router.post('/logout', validate(refreshSchema), controller.logout);
+ 
+diff --git a/src/routes/authorizationRoutes.js b/src/routes/authorizationRoutes.js
+index 6061c04..3af74f7 100644
+--- a/src/routes/authorizationRoutes.js
++++ b/src/routes/authorizationRoutes.js
+@@ -55,28 +55,105 @@ const permissionAssignmentUpdateSchema = Joi.object({
+  * @openapi
+  * /api/v1/identity-admin/authorization/roles:
+  *   get:
+- *     summary: Retrieve all roles
+- *     tags: [Authorization]
++ *     summary: List roles (paginated, filterable, searchable)
++ *     tags: [Roles]
++ *     parameters:
++ *       - in: query
++ *         name: page
++ *         schema: { type: integer, default: 1 }
++ *       - in: query
++ *         name: limit
++ *         schema: { type: integer, default: 20 }
++ *       - in: query
++ *         name: status
++ *         schema: { type: string, enum: [ACTIVE, INACTIVE, DELETED] }
++ *       - in: query
++ *         name: search
++ *         schema: { type: string }
++ *         description: Matches against role name and description
+  *     responses:
+  *       200:
+- *         description: List of defined roles
++ *         description: Paginated list of roles
++ *         content:
++ *           application/json:
++ *             schema:
++ *               type: object
++ *               properties:
++ *                 data:
++ *                   type: array
++ *                   items: { type: object }
++ *                 pagination: { $ref: '#/components/schemas/PaginationMeta' }
++ *       400: { $ref: '#/components/responses/ValidationError' }
+  *   post:
+- *     summary: Create a new system role
+- *     tags: [Authorization]
++ *     summary: Create a role
++ *     tags: [Roles]
+  *     requestBody:
+  *       required: true
+  *       content:
+  *         application/json:
+  *           schema:
+  *             type: object
+- *             required: [roleCode, roleName]
++ *             required: [roleType, roleName]
+  *             properties:
+- *               roleCode: { type: string, example: "ROLE_TENANT_ADMIN" }
++ *               roleType: { type: string, pattern: '^[A-Z0-9_]+$', example: "TENANT_ADMIN" }
+  *               roleName: { type: string, example: "Tenant Administrator" }
+- *               description: { type: string, example: "Full access within tenant boundary" }
++ *               description: { type: string, nullable: true, example: "Full access within tenant boundary" }
++ *               status: { type: string, enum: [ACTIVE, INACTIVE], default: ACTIVE }
+  *     responses:
+  *       201:
+- *         description: Role created successfully
++ *         description: Role created
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ * /api/v1/identity-admin/authorization/roles/{roleId}:
++ *   get:
++ *     summary: Get a role by ID
++ *     tags: [Roles]
++ *     parameters:
++ *       - in: path
++ *         name: roleId
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: Role detail object
++ *       404: { $ref: '#/components/responses/NotFound' }
++ *   patch:
++ *     summary: Update a role
++ *     tags: [Roles]
++ *     parameters:
++ *       - in: path
++ *         name: roleId
++ *         required: true
++ *         schema: { type: integer }
++ *     requestBody:
++ *       required: true
++ *       content:
++ *         application/json:
++ *           schema:
++ *             type: object
++ *             required: [roleType, roleName]
++ *             properties:
++ *               roleType: { type: string, pattern: '^[A-Z0-9_]+$' }
++ *               roleName: { type: string }
++ *               description: { type: string, nullable: true }
++ *               status: { type: string, enum: [ACTIVE, INACTIVE] }
++ *     responses:
++ *       200:
++ *         description: Role updated
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ *       404: { $ref: '#/components/responses/NotFound' }
++ * /api/v1/identity-admin/authorization/roles/{roleId}/status:
++ *   patch:
++ *     summary: Deactivate/soft-delete a role
++ *     tags: [Roles]
++ *     parameters:
++ *       - in: path
++ *         name: roleId
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: Role status updated
++ *       404: { $ref: '#/components/responses/NotFound' }
+  */
+ router.get('/roles', validate(roleListQuerySchema, 'query'), controller.getRoles);
+ router.get('/roles/:roleId', controller.getRoleById);
+@@ -88,23 +165,148 @@ router.patch('/roles/:roleId/status',  controller.deleteRole)
+  * @openapi
+  * /api/v1/identity-admin/authorization/permissions:
+  *   get:
+- *     summary: Retrieve system permissions and scopes
+- *     tags: [Authorization]
++ *     summary: List permissions (paginated, filterable, searchable)
++ *     tags: [Permissions]
++ *     parameters:
++ *       - in: query
++ *         name: page
++ *         schema: { type: integer, default: 1 }
++ *       - in: query
++ *         name: limit
++ *         schema: { type: integer, default: 20 }
++ *       - in: query
++ *         name: status
++ *         schema: { type: string, enum: [ACTIVE, INACTIVE, DELETED] }
++ *       - in: query
++ *         name: search
++ *         schema: { type: string }
++ *         description: Matches against permission name, description, resource, and action
+  *     responses:
+  *       200:
+- *         description: List of permissions
++ *         description: Paginated list of permissions
++ *         content:
++ *           application/json:
++ *             schema:
++ *               type: object
++ *               properties:
++ *                 data:
++ *                   type: array
++ *                   items: { type: object }
++ *                 pagination: { $ref: '#/components/schemas/PaginationMeta' }
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ *   post:
++ *     summary: >
++ *       Create one or more permissions. resources × actions are combined
++ *       pairwise (a "resources" array with an "actions" array creates a
++ *       permission for each combination) — see allowDuplicates to control
++ *       whether existing resource/action pairs are skipped or re-created.
++ *     tags: [Permissions]
++ *     requestBody:
++ *       required: true
++ *       content:
++ *         application/json:
++ *           schema:
++ *             type: object
++ *             required: [resourceCategory, resources, actionCategory, actions, permissionName]
++ *             properties:
++ *               resourceCategory: { type: string, example: "USER_MANAGEMENT" }
++ *               resources:
++ *                 type: array
++ *                 items: { type: string }
++ *                 example: ["users"]
++ *               actionCategory: { type: string, example: "CRUD" }
++ *               actions:
++ *                 type: array
++ *                 items: { type: string }
++ *                 example: ["read", "write"]
++ *               permissionName: { type: string, example: "Manage Users" }
++ *               description: { type: string, nullable: true }
++ *               status: { type: string, enum: [ACTIVE, INACTIVE], default: ACTIVE }
++ *               allowDuplicates: { type: boolean, default: false }
++ *     responses:
++ *       201:
++ *         description: Permission(s) created
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ * /api/v1/identity-admin/authorization/permissions/{permissionId}:
++ *   get:
++ *     summary: Get a permission by ID
++ *     tags: [Permissions]
++ *     parameters:
++ *       - in: path
++ *         name: permissionId
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: Permission detail object
++ *       404: { $ref: '#/components/responses/NotFound' }
++ *   patch:
++ *     summary: Update a permission
++ *     tags: [Permissions]
++ *     parameters:
++ *       - in: path
++ *         name: permissionId
++ *         required: true
++ *         schema: { type: integer }
++ *     requestBody:
++ *       required: true
++ *       content:
++ *         application/json:
++ *           schema:
++ *             type: object
++ *             required: [resourceCategory, resource, actionCategory, action, permissionName]
++ *             properties:
++ *               resourceCategory: { type: string }
++ *               resource: { type: string }
++ *               actionCategory: { type: string }
++ *               action: { type: string }
++ *               permissionName: { type: string }
++ *               description: { type: string, nullable: true }
++ *               status: { type: string, enum: [ACTIVE, INACTIVE] }
++ *               allowDuplicates: { type: boolean, default: false }
++ *     responses:
++ *       200:
++ *         description: Permission updated
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ *       404: { $ref: '#/components/responses/NotFound' }
++ * /api/v1/identity-admin/authorization/permissions/{permissionId}/status:
++ *   patch:
++ *     summary: Deactivate/soft-delete a permission
++ *     tags: [Permissions]
++ *     parameters:
++ *       - in: path
++ *         name: permissionId
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: Permission status updated
++ *       404: { $ref: '#/components/responses/NotFound' }
+  */
+ router.get('/permissions', validate(permissionListQuerySchema, 'query'), controller.getPermissions);
+ router.get('/permissions/:permissionId', controller.getPermissionById);
+ router.post('/permissions', validate(permissionSchema), controller.createPermission);
+ router.patch('/permissions/:permissionId', validate(permissionEditSchema), controller.updatePermission);
+ router.patch('/permissions/:permissionId/status',  controller.deletePermission)
++
+ /**
+  * @openapi
+- * /api/v1/identity-admin/roles/{roleId}/permissions:
++ * /api/v1/identity-admin/authorization/roles/{roleId}/permissions:
++ *   get:
++ *     summary: Get permissions assigned to a role
++ *     tags: [Permissions]
++ *     parameters:
++ *       - in: path
++ *         name: roleId
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: List of permissions assigned to the role
++ *       404: { $ref: '#/components/responses/NotFound' }
+  *   post:
+  *     summary: Assign permissions to a role
+- *     tags: [Authorization]
++ *     tags: [Permissions]
+  *     parameters:
+  *       - in: path
+  *         name: roleId
+@@ -116,6 +318,7 @@ router.patch('/permissions/:permissionId/status',  controller.deletePermission)
+  *         application/json:
+  *           schema:
+  *             type: object
++ *             required: [permissionIds]
+  *             properties:
+  *               permissionIds:
+  *                 type: array
+@@ -123,7 +326,34 @@ router.patch('/permissions/:permissionId/status',  controller.deletePermission)
+  *                 example: [1, 2, 5]
+  *     responses:
+  *       200:
+- *         description: Permissions successfully assigned
++ *         description: Permissions assigned successfully
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ *       404: { $ref: '#/components/responses/NotFound' }
++ *   patch:
++ *     summary: Revoke permissions from a role
++ *     tags: [Permissions]
++ *     parameters:
++ *       - in: path
++ *         name: roleId
++ *         required: true
++ *         schema: { type: integer }
++ *     requestBody:
++ *       required: true
++ *       content:
++ *         application/json:
++ *           schema:
++ *             type: object
++ *             required: [permissionIds]
++ *             properties:
++ *               permissionIds:
++ *                 type: array
++ *                 items: { type: integer }
++ *                 example: [2]
++ *     responses:
++ *       200:
++ *         description: Permissions revoked successfully
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ *       404: { $ref: '#/components/responses/NotFound' }
+  */
+ router.post('/roles/:roleId/permissions', validate(permissionAssignmentSchema), controller.assignPermissionsToRole);
+ router.patch('/roles/:roleId/permissions', validate(permissionAssignmentUpdateSchema), controller.revokePermissionsToRole);
+diff --git a/src/routes/idpRoutes.js b/src/routes/idpRoutes.js
+index 82ea8ff..6520499 100644
+--- a/src/routes/idpRoutes.js
++++ b/src/routes/idpRoutes.js
+@@ -20,23 +20,46 @@ const providerSchema = Joi.object({
+ const statusSchema = Joi.object({ status: Joi.string().valid('ACTIVE', 'INACTIVE').required() });
+ 
+ /**
+- * @swagger
+- * tags:
+- *   name: Identity Providers
+- *   description: Management of Auth0, Okta, Cognito, SAML, and OIDC Identity Providers
+- */
+-
+-/**
+- * @swagger
++ * @openapi
+  * /api/v1/identity-admin/identity-providers:
+  *   get:
+- *     summary: Get all identity providers
++ *     summary: List identity providers (paginated, filterable, searchable)
+  *     tags: [Identity Providers]
++ *     parameters:
++ *       - in: query
++ *         name: page
++ *         schema: { type: integer, default: 1 }
++ *       - in: query
++ *         name: limit
++ *         schema: { type: integer, default: 20 }
++ *       - in: query
++ *         name: status
++ *         schema: { type: string, enum: [ACTIVE, INACTIVE, DISABLED] }
++ *       - in: query
++ *         name: providerType
++ *         schema: { type: string, enum: [OIDC, SAML, OAUTH2, LDAP] }
++ *       - in: query
++ *         name: tenantUuid
++ *         schema: { type: string }
++ *       - in: query
++ *         name: search
++ *         schema: { type: string }
++ *         description: Matches against provider name and provider type
+  *     responses:
+  *       200:
+- *         description: List of configured identity providers
++ *         description: Paginated list of identity providers. client_secret_encrypted is never returned.
++ *         content:
++ *           application/json:
++ *             schema:
++ *               type: object
++ *               properties:
++ *                 data:
++ *                   type: array
++ *                   items: { type: object }
++ *                 pagination: { $ref: '#/components/schemas/PaginationMeta' }
++ *       400: { $ref: '#/components/responses/ValidationError' }
+  *   post:
+- *     summary: Create a new identity provider
++ *     summary: Create an identity provider
+  *     tags: [Identity Providers]
+  *     requestBody:
+  *       required: true
+@@ -45,45 +68,138 @@ const statusSchema = Joi.object({ status: Joi.string().valid('ACTIVE', 'INACTIVE
+  *           schema:
+  *             type: object
+  *             required:
+- *               - code
+- *               - name
+- *               - type
++ *               - providerName
++ *               - providerType
+  *             properties:
+- *               code:
++ *               tenantUuid:
+  *                 type: string
+- *                 example: "AUTH0_PRIMARY"
+- *               name:
++ *               providerCode:
+  *                 type: string
++ *                 maxLength: 100
++ *                 description: Auto-generated from providerName if omitted
++ *                 example: "IDP_AUTH0_PRIMARY"
++ *               providerName:
++ *                 type: string
++ *                 maxLength: 250
+  *                 example: "Primary Auth0"
+- *               type:
++ *               providerType:
+  *                 type: string
++ *                 enum: [OIDC, SAML, OAUTH2, LDAP]
+  *                 example: "OIDC"
++ *               issuerUrl:
++ *                 type: string
++ *                 example: "https://example.us.auth0.com/"
++ *               authorizationUrl:
++ *                 type: string
++ *                 example: "https://example.us.auth0.com/authorize"
++ *               tokenUrl:
++ *                 type: string
++ *                 example: "https://example.us.auth0.com/oauth/token"
++ *               jwksUrl:
++ *                 type: string
++ *                 example: "https://example.us.auth0.com/.well-known/jwks.json"
++ *               clientId:
++ *                 type: string
++ *                 example: "client_12345"
++ *               clientSecret:
++ *                 type: string
++ *                 description: Write-only. Encrypted at rest; never returned by any endpoint.
++ *               scopes:
++ *                 type: array
++ *                 items:
++ *                   type: string
++ *                 example: ["openid", "profile", "email"]
+  *               configuration:
+  *                 type: object
+- *                 properties:
+- *                   issuerUrl:
+- *                     type: string
+- *                     example: "https://example.us.auth0.com/"
+- *                   authorizationUrl:
+- *                     type: string
+- *                     example: "https://example.us.auth0.com/authorize"
+- *                   tokenUrl:
+- *                     type: string
+- *                     example: "https://example.us.auth0.com/oauth/token"
+- *                   jwksUrl:
+- *                     type: string
+- *                     example: "https://example.us.auth0.com/.well-known/jwks.json"
+- *                   clientId:
+- *                     type: string
+- *                     example: "client_12345"
+- *                   scopes:
+- *                     type: array
+- *                     items:
+- *                       type: string
+- *                     example: ["openid", "profile", "email"]
++ *                 description: Free-form additional provider-specific settings
+  *     responses:
+  *       201:
+- *         description: Identity provider created successfully
++ *         description: Identity provider created
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ *       409:
++ *         description: providerCode or providerName already in use for this tenant
++ * /api/v1/identity-admin/identity-providers/{identityProviderId}:
++ *   get:
++ *     summary: Get an identity provider by ID
++ *     tags: [Identity Providers]
++ *     parameters:
++ *       - in: path
++ *         name: identityProviderId
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: Identity provider detail object
++ *       404: { $ref: '#/components/responses/NotFound' }
++ *   put:
++ *     summary: Replace an identity provider's configuration
++ *     tags: [Identity Providers]
++ *     parameters:
++ *       - in: path
++ *         name: identityProviderId
++ *         required: true
++ *         schema: { type: integer }
++ *     requestBody:
++ *       required: true
++ *       content:
++ *         application/json:
++ *           schema:
++ *             type: object
++ *             minProperties: 1
++ *             properties:
++ *               providerCode: { type: string, maxLength: 100 }
++ *               providerName: { type: string, maxLength: 250 }
++ *               providerType: { type: string, enum: [OIDC, SAML, OAUTH2, LDAP] }
++ *               issuerUrl: { type: string }
++ *               authorizationUrl: { type: string }
++ *               tokenUrl: { type: string }
++ *               jwksUrl: { type: string }
++ *               clientId: { type: string }
++ *               clientSecret: { type: string, description: Write-only; omit to leave unchanged }
++ *               scopes: { type: array, items: { type: string } }
++ *               configuration: { type: object }
++ *     responses:
++ *       200:
++ *         description: Identity provider updated
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ *       404: { $ref: '#/components/responses/NotFound' }
++ *       409:
++ *         description: providerCode or providerName already in use for this tenant
++ *   delete:
++ *     summary: Delete an identity provider
++ *     tags: [Identity Providers]
++ *     parameters:
++ *       - in: path
++ *         name: identityProviderId
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: Identity provider deleted
++ *       404: { $ref: '#/components/responses/NotFound' }
++ * /api/v1/identity-admin/identity-providers/{identityProviderId}/status:
++ *   patch:
++ *     summary: Activate or deactivate an identity provider
++ *     tags: [Identity Providers]
++ *     parameters:
++ *       - in: path
++ *         name: identityProviderId
++ *         required: true
++ *         schema: { type: integer }
++ *     requestBody:
++ *       required: true
++ *       content:
++ *         application/json:
++ *           schema:
++ *             type: object
++ *             required: [status]
++ *             properties:
++ *               status: { type: string, enum: [ACTIVE, INACTIVE, DISABLED], example: "ACTIVE" }
++ *     responses:
++ *       200:
++ *         description: Provider status updated
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ *       404: { $ref: '#/components/responses/NotFound' }
+  */
+ router.get('/', idpController.getIdentityProviders);
+ router.get('/:identityProviderId', idpController.getIdentityProviderById);
+@@ -93,10 +209,10 @@ router.delete('/:identityProviderId', idpController.deleteIdentityProvider);
+ router.patch('/:identityProviderId/status', idpController.updateStatus);
+ 
+ /**
+- * @swagger
++ * @openapi
+  * /api/v1/identity-admin/identity-providers/{id}/test:
+  *   post:
+- *     summary: Test identity provider configuration connectivity
++ *     summary: Test identity provider configuration connectivity (issuer reachability, JWKS fetch)
+  *     tags: [Identity Providers]
+  *     parameters:
+  *       - in: path
+@@ -107,38 +223,8 @@ router.patch('/:identityProviderId/status', idpController.updateStatus);
+  *     responses:
+  *       200:
+  *         description: Test results indicating status of issuer, configuration, and JWKS
++ *       404: { $ref: '#/components/responses/NotFound' }
+  */
+ router.post('/:id/test', idpController.testProvider);
+ 
+-// /**
+-//  * @swagger
+-//  * /api/v1/identity-admin/identity-providers/{id}/status:
+-//  *   patch:
+-//  *     summary: Activate or deactivate an identity provider
+-//  *     tags: [Identity Providers]
+-//  *     parameters:
+-//  *       - in: path
+-//  *         name: id
+-//  *         required: true
+-//  *         schema:
+-//  *           type: integer
+-//  *     requestBody:
+-//  *       required: true
+-//  *       content:
+-//  *         application/json:
+-//  *           schema:
+-//  *             type: object
+-//  *             required:
+-//  *               - status
+-//  *             properties:
+-//  *               status:
+-//  *                 type: string
+-//  *                 enum: [ACTIVE, INACTIVE]
+-//  *                 example: "ACTIVE"
+-//  *     responses:
+-//  *       200:
+-//  *         description: Provider status updated successfully
+-//  */
+-// router.patch('/:id/status', validate(statusSchema), idpController.updateStatus);
+-
+ module.exports = router;
+diff --git a/src/routes/mfaRoutes.js b/src/routes/mfaRoutes.js
+index 28e43b0..4771390 100644
+--- a/src/routes/mfaRoutes.js
++++ b/src/routes/mfaRoutes.js
+@@ -16,18 +16,38 @@ const mfaListQuerySchema = paginationQuerySchema({
+  * @openapi
+  * /api/v1/identity-admin/users/{userId}/mfa:
+  *   get:
+- *     summary: Retrieve user registered MFA methods
++ *     summary: List a user's registered MFA methods (paginated, filterable by status)
+  *     tags: [MFA]
+  *     parameters:
+  *       - in: path
+  *         name: userId
+  *         required: true
+  *         schema: { type: integer }
++ *       - in: query
++ *         name: page
++ *         schema: { type: integer, default: 1 }
++ *       - in: query
++ *         name: limit
++ *         schema: { type: integer, default: 20 }
++ *       - in: query
++ *         name: status
++ *         schema: { type: string, enum: [PENDING, ACTIVE, INACTIVE, REVOKED] }
+  *     responses:
+  *       200:
+- *         description: List of MFA methods
++ *         description: Paginated list of MFA methods
++ *         content:
++ *           application/json:
++ *             schema:
++ *               type: object
++ *               properties:
++ *                 data: { type: array, items: { type: object } }
++ *                 pagination: { $ref: '#/components/schemas/PaginationMeta' }
+  *   post:
+- *     summary: Register a new MFA method for a user
++ *     summary: >
++ *       Begin registering a new TOTP MFA method for a user. The server
++ *       generates the secret; it is returned once in the response for the
++ *       user to scan/enter into their authenticator app, then must be
++ *       confirmed via POST .../mfa/{mfaId}/verify before it becomes ACTIVE.
+  *     tags: [MFA]
+  *     parameters:
+  *       - in: path
+@@ -40,16 +60,100 @@ const mfaListQuerySchema = paginationQuerySchema({
+  *         application/json:
+  *           schema:
+  *             type: object
+- *             required: [mfaType, secret]
++ *             required: [mfaType]
+  *             properties:
+- *               mfaType: { type: string, example: "TOTP" }
+- *               secret: { type: string, example: "JBSWY3DPEHPK3PXP" }
++ *               mfaType: { type: string, enum: [TOTP], example: "TOTP" }
+  *     responses:
+  *       201:
+- *         description: MFA registered successfully
++ *         description: "MFA method created in PENDING status. Response includes the one-time secret/QR provisioning URI."
++ *       400: { $ref: '#/components/responses/ValidationError' }
+  */
+ router.get('/', validate(mfaListQuerySchema, 'query'), controller.getUserMfaMethods);
+ router.post('/', validate(mfaRegistrationSchema), controller.registerMfaMethod);
++
++/**
++ * @openapi
++ * /api/v1/identity-admin/users/{userId}/mfa/{mfaId}/verify:
++ *   post:
++ *     summary: Confirm a PENDING MFA method with a TOTP code, activating it
++ *     tags: [MFA]
++ *     parameters:
++ *       - in: path
++ *         name: userId
++ *         required: true
++ *         schema: { type: integer }
++ *       - in: path
++ *         name: mfaId
++ *         required: true
++ *         schema: { type: integer }
++ *     requestBody:
++ *       required: true
++ *       content:
++ *         application/json:
++ *           schema:
++ *             type: object
++ *             required: [code]
++ *             properties:
++ *               code: { type: string, pattern: '^\d{6}$', example: "123456" }
++ *     responses:
++ *       200:
++ *         description: MFA method activated
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ *       401:
++ *         description: Invalid or expired code
++ *       404: { $ref: '#/components/responses/NotFound' }
++ * /api/v1/identity-admin/users/{userId}/mfa/{mfaId}/rotate:
++ *   post:
++ *     summary: Rotate the TOTP secret for an existing MFA method (re-enrollment)
++ *     tags: [MFA]
++ *     parameters:
++ *       - in: path
++ *         name: userId
++ *         required: true
++ *         schema: { type: integer }
++ *       - in: path
++ *         name: mfaId
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: Secret rotated. New provisioning secret/QR returned once.
++ *       404: { $ref: '#/components/responses/NotFound' }
++ * /api/v1/identity-admin/users/{userId}/mfa/{mfaId}/deactivate:
++ *   patch:
++ *     summary: Deactivate an MFA method (reversible)
++ *     tags: [MFA]
++ *     parameters:
++ *       - in: path
++ *         name: userId
++ *         required: true
++ *         schema: { type: integer }
++ *       - in: path
++ *         name: mfaId
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: MFA method deactivated
++ *       404: { $ref: '#/components/responses/NotFound' }
++ * /api/v1/identity-admin/users/{userId}/mfa/{mfaId}/reactivate:
++ *   patch:
++ *     summary: Reactivate a previously deactivated MFA method
++ *     tags: [MFA]
++ *     parameters:
++ *       - in: path
++ *         name: userId
++ *         required: true
++ *         schema: { type: integer }
++ *       - in: path
++ *         name: mfaId
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: MFA method reactivated
++ *       404: { $ref: '#/components/responses/NotFound' }
++ */
+ router.post('/:mfaId/verify', validate(mfaVerificationSchema), controller.verifyMfaMethod);
+ router.post('/:mfaId/rotate', controller.rotateMfaSecret);
+ router.patch('/:mfaId/deactivate', controller.deactivateMfaMethod);
+@@ -59,7 +163,7 @@ router.patch('/:mfaId/reactivate', controller.reactivateMfaMethod);
+  * @openapi
+  * /api/v1/identity-admin/users/{userId}/mfa/{mfaId}/revoke:
+  *   patch:
+- *     summary: Revoke an MFA method
++ *     summary: Permanently revoke an MFA method (irreversible)
+  *     tags: [MFA]
+  *     parameters:
+  *       - in: path
+@@ -73,6 +177,7 @@ router.patch('/:mfaId/reactivate', controller.reactivateMfaMethod);
+  *     responses:
+  *       200:
+  *         description: MFA revoked successfully
++ *       404: { $ref: '#/components/responses/NotFound' }
+  */
+ router.patch('/:mfaId/revoke', controller.revokeMfaMethod);
+ 
+diff --git a/src/routes/oAuthClientRoutes.js b/src/routes/oAuthClientRoutes.js
+index 43f219a..250859f 100644
+--- a/src/routes/oAuthClientRoutes.js
++++ b/src/routes/oAuthClientRoutes.js
+@@ -31,7 +31,7 @@ const idParamSchema = Joi.object({ id });
+  * /api/v1/identity-admin/oauth/clients:
+  *   get:
+  *     summary: Retrieve registered OAuth & API Clients (paginated, filterable)
+- *     tags: [OAuth/OIDC Clients]
++ *     tags: [OAuth Clients]
+  *     parameters:
+  *       - in: query
+  *         name: page
+@@ -48,12 +48,80 @@ const idParamSchema = Joi.object({ id });
+  *     responses:
+  *       200:
+  *         description: Paginated list of registered clients
++ *         content:
++ *           application/json:
++ *             schema:
++ *               type: object
++ *               properties:
++ *                 data: { type: array, items: { type: object } }
++ *                 pagination: { $ref: '#/components/schemas/PaginationMeta' }
++ *       400: { $ref: '#/components/responses/ValidationError' }
+  *   post:
+- *     summary: Register a new OAuth/OIDC client application
+- *     tags: [OAuth/OIDC Clients]
++ *     summary: Register an OAuth/OIDC client application
++ *     tags: [OAuth Clients]
++ *     requestBody:
++ *       required: true
++ *       content:
++ *         application/json:
++ *           schema:
++ *             type: object
++ *             required: [clientName]
++ *             properties:
++ *               clientName: { type: string, minLength: 3, example: "Partner Portal SPA" }
++ *               clientType: { type: string, enum: [CONFIDENTIAL, PUBLIC], default: CONFIDENTIAL }
++ *               grantTypes:
++ *                 type: array
++ *                 items: { type: string, enum: [authorization_code, refresh_token, client_credentials] }
++ *                 default: [authorization_code]
++ *               redirectUris:
++ *                 type: array
++ *                 items: { type: string }
++ *                 example: ["https://partner.example.com/callback"]
++ *               expiresOn: { type: string, format: date-time, nullable: true }
+  *     responses:
+  *       201:
+- *         description: OAuth Client created successfully
++ *         description: OAuth client created. The client secret is returned once, only in this response.
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ * /api/v1/identity-admin/oauth/clients/{id}:
++ *   get:
++ *     summary: Get an OAuth client by ID
++ *     tags: [OAuth Clients]
++ *     parameters:
++ *       - in: path
++ *         name: id
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: OAuth client detail object
++ *       404: { $ref: '#/components/responses/NotFound' }
++ *   patch:
++ *     summary: Update an OAuth client's metadata
++ *     tags: [OAuth Clients]
++ *     parameters:
++ *       - in: path
++ *         name: id
++ *         required: true
++ *         schema: { type: integer }
++ *     requestBody:
++ *       required: true
++ *       content:
++ *         application/json:
++ *           schema:
++ *             type: object
++ *             minProperties: 1
++ *             properties:
++ *               clientName: { type: string, minLength: 3 }
++ *               grantTypes:
++ *                 type: array
++ *                 items: { type: string, enum: [authorization_code, refresh_token, client_credentials] }
++ *               redirectUris: { type: array, items: { type: string } }
++ *               expiresOn: { type: string, format: date-time, nullable: true }
++ *     responses:
++ *       200:
++ *         description: OAuth client updated
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ *       404: { $ref: '#/components/responses/NotFound' }
+  */
+ router.get('/clients', validate(listQuerySchema, 'query'), controller.getClients);
+ router.post('/clients', validate(oauthClientSchema), controller.createClient);
+@@ -65,19 +133,55 @@ router.patch('/clients/:id', validate(idParamSchema, 'params'), validate(oauthCl
+  * /api/v1/identity-admin/oauth/clients/{id}/revoke:
+  *   patch:
+  *     summary: Revoke an OAuth client (terminal; revokes its tokens)
+- *     tags: [OAuth/OIDC Clients]
++ *     tags: [OAuth Clients]
++ *     parameters:
++ *       - in: path
++ *         name: id
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: OAuth client revoked
++ *       404: { $ref: '#/components/responses/NotFound' }
+  * /api/v1/identity-admin/oauth/clients/{id}/deactivate:
+  *   patch:
+  *     summary: Temporarily suspend an OAuth client (reversible)
+- *     tags: [OAuth/OIDC Clients]
++ *     tags: [OAuth Clients]
++ *     parameters:
++ *       - in: path
++ *         name: id
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: OAuth client suspended
++ *       404: { $ref: '#/components/responses/NotFound' }
+  * /api/v1/identity-admin/oauth/clients/{id}/reactivate:
+  *   patch:
+  *     summary: Reactivate a suspended OAuth client
+- *     tags: [OAuth/OIDC Clients]
++ *     tags: [OAuth Clients]
++ *     parameters:
++ *       - in: path
++ *         name: id
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: OAuth client reactivated
++ *       404: { $ref: '#/components/responses/NotFound' }
+  * /api/v1/identity-admin/oauth/clients/{id}/rotate-secret:
+  *   post:
+  *     summary: Rotate the client secret; revokes access & refresh tokens issued under the old secret
+- *     tags: [OAuth/OIDC Clients]
++ *     tags: [OAuth Clients]
++ *     parameters:
++ *       - in: path
++ *         name: id
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: Secret rotated. The new secret is returned once, only in this response.
++ *       404: { $ref: '#/components/responses/NotFound' }
+  */
+ router.patch('/clients/:id/revoke', controller.revokeClient);
+ router.patch('/clients/:id/deactivate', controller.deactivateClient);
+diff --git a/src/routes/publicRoutes.js b/src/routes/publicRoutes.js
+index ead3bec..5d351ea 100644
+--- a/src/routes/publicRoutes.js
++++ b/src/routes/publicRoutes.js
+@@ -7,8 +7,36 @@ const publicController = require('../controllers/publicController');
+  * @openapi
+  * /api/v1/identity-admin/public/tenants/search:
+  *   get:
+- *     summary: Search tenants (filterable by status/ip; defaults to ACTIVE)
+- *     tags: [Public APIs]
++ *     summary: Unauthenticated tenant lookup by name substring (always status=ACTIVE). Used by the login screen to resolve tenantUuid from a tenant name.
++ *     tags: [Public]
++ *     parameters:
++ *       - in: query
++ *         name: q
++ *         schema: { type: string }
++ *         description: Case-insensitive substring match against tenant name. Omit to list all active tenants.
++ *     responses:
++ *       200:
++ *         description: Matching active tenants
++ *         content:
++ *           application/json:
++ *             schema:
++ *               type: object
++ *               properties:
++ *                 success: { type: boolean, example: true }
++ *                 count: { type: integer, example: 1 }
++ *                 data:
++ *                   type: array
++ *                   items:
++ *                     type: object
++ *                     properties:
++ *                       tenantUuid: { type: string }
++ *                       tenantCode: { type: string }
++ *                       tenantName: { type: string }
++ *                       status: { type: string, example: "ACTIVE" }
++ *                       createdOn: { type: string, format: date-time }
++ *                       modifiedOn: { type: string, format: date-time }
++ *       500:
++ *         description: Unexpected error fetching tenants
+  */
+ router.get('/public/tenants/search', publicController.searchTenants);
+ 
+diff --git a/src/routes/resourceActionRoutes.js b/src/routes/resourceActionRoutes.js
+index 70f4fdb..77e2285 100644
+--- a/src/routes/resourceActionRoutes.js
++++ b/src/routes/resourceActionRoutes.js
+@@ -11,27 +11,20 @@ const resourceActionController =
+ // const authorize =
+ //   require("../middleware/authorization");
+ 
+-/**
+- * @swagger
+- * tags:
+- *   - name: Resource Master
+- *     description: Resource master management APIs
+- *   - name: Action Master
+- *     description: Action master management APIs
+- */
++// Tag ("Resource Actions") is registered globally in src/config/swagger.js
+ 
+ // =========================================================
+ // RESOURCE MASTER
+ // =========================================================
+ 
+ /**
+- * @swagger
+- * /resources/categories:
++ * @openapi
++ * /api/v1/identity-admin/resources/categories:
+  *   get:
+  *     summary: Get resource categories
+  *     description: Returns all distinct active resource categories.
+  *     tags:
+- *       - Resource Master
++ *       - Resource Actions
+  *     security:
+  *       - bearerAuth: []
+  *     responses:
+@@ -60,13 +53,13 @@ router.get(
+ 
+ 
+ /**
+- * @swagger
+- * /resources:
++ * @openapi
++ * /api/v1/identity-admin/resources:
+  *   get:
+  *     summary: Get resources
+  *     description: Returns a paginated list of resources.
+  *     tags:
+- *       - Resource Master
++ *       - Resource Actions
+  *     security:
+  *       - bearerAuth: []
+  *     parameters:
+@@ -95,13 +88,6 @@ router.get(
+  *         description: Resource status.
+  *
+  *       - in: query
+- *         name: userType
+- *         schema:
+- *           type: string
+- *           example: ADMIN
+- *         description: User type filter.
+- *
+- *       - in: query
+  *         name: search
+  *         schema:
+  *           type: string
+@@ -110,7 +96,14 @@ router.get(
+  *
+  *     responses:
+  *       200:
+- *         description: Resources retrieved successfully.
++ *         description: Paginated list of resources.
++ *         content:
++ *           application/json:
++ *             schema:
++ *               type: object
++ *               properties:
++ *                 data: { type: array, items: { type: object } }
++ *                 pagination: { $ref: '#/components/schemas/PaginationMeta' }
+  *       401:
+  *         description: Unauthorized.
+  *       403:
+@@ -123,13 +116,13 @@ router.get(
+ 
+ 
+ /**
+- * @swagger
+- * /resources/category/{category}:
++ * @openapi
++ * /api/v1/identity-admin/resources/category/{category}:
+  *   get:
+  *     summary: Get resources by category
+  *     description: Returns all resources belonging to a specific resource category.
+  *     tags:
+- *       - Resource Master
++ *       - Resource Actions
+  *     security:
+  *       - bearerAuth: []
+  *     parameters:
+@@ -157,13 +150,13 @@ router.get(
+ 
+ 
+ /**
+- * @swagger
+- * /resources/{resourceId}:
++ * @openapi
++ * /api/v1/identity-admin/resources/{resourceId}:
+  *   get:
+  *     summary: Get resource by ID
+  *     description: Returns a resource using its unique identifier.
+  *     tags:
+- *       - Resource Master
++ *       - Resource Actions
+  *     security:
+  *       - bearerAuth: []
+  *     parameters:
+@@ -190,13 +183,13 @@ router.get(
+ 
+ 
+ /**
+- * @swagger
+- * /resources:
++ * @openapi
++ * /api/v1/identity-admin/resources:
+  *   post:
+  *     summary: Create resource
+  *     description: Creates a new resource.
+  *     tags:
+- *       - Resource Master
++ *       - Resource Actions
+  *     security:
+  *       - bearerAuth: []
+  *     requestBody:
+@@ -242,13 +235,13 @@ router.post(
+ 
+ 
+ /**
+- * @swagger
+- * /resources/{resourceId}:
++ * @openapi
++ * /api/v1/identity-admin/resources/{resourceId}:
+  *   put:
+  *     summary: Update resource
+  *     description: Updates an existing resource.
+  *     tags:
+- *       - Resource Master
++ *       - Resource Actions
+  *     security:
+  *       - bearerAuth: []
+  *     parameters:
+@@ -294,13 +287,13 @@ router.put(
+ 
+ 
+ /**
+- * @swagger
+- * /resources/{resourceId}:
++ * @openapi
++ * /api/v1/identity-admin/resources/{resourceId}:
+  *   delete:
+  *     summary: Delete resource
+  *     description: Deactivates or deletes an existing resource.
+  *     tags:
+- *       - Resource Master
++ *       - Resource Actions
+  *     security:
+  *       - bearerAuth: []
+  *     parameters:
+@@ -331,13 +324,13 @@ router.delete(
+ // =========================================================
+ 
+ /**
+- * @swagger
+- * /actions/categories:
++ * @openapi
++ * /api/v1/identity-admin/actions/categories:
+  *   get:
+  *     summary: Get action categories
+  *     description: Returns all distinct active action categories.
+  *     tags:
+- *       - Action Master
++ *       - Resource Actions
+  *     security:
+  *       - bearerAuth: []
+  *     responses:
+@@ -366,13 +359,13 @@ router.get(
+ 
+ 
+ /**
+- * @swagger
+- * /actions:
++ * @openapi
++ * /api/v1/identity-admin/actions:
+  *   get:
+  *     summary: Get actions
+  *     description: Returns a paginated list of actions.
+  *     tags:
+- *       - Action Master
++ *       - Resource Actions
+  *     security:
+  *       - bearerAuth: []
+  *     parameters:
+@@ -398,12 +391,6 @@ router.get(
+  *           example: ACTIVE
+  *
+  *       - in: query
+- *         name: userType
+- *         schema:
+- *           type: string
+- *           example: ADMIN
+- *
+- *       - in: query
+  *         name: search
+  *         schema:
+  *           type: string
+@@ -411,7 +398,14 @@ router.get(
+  *
+  *     responses:
+  *       200:
+- *         description: Actions retrieved successfully.
++ *         description: Paginated list of actions.
++ *         content:
++ *           application/json:
++ *             schema:
++ *               type: object
++ *               properties:
++ *                 data: { type: array, items: { type: object } }
++ *                 pagination: { $ref: '#/components/schemas/PaginationMeta' }
+  *       401:
+  *         description: Unauthorized.
+  *       403:
+@@ -424,13 +418,13 @@ router.get(
+ 
+ 
+ /**
+- * @swagger
+- * /actions/category/{category}:
++ * @openapi
++ * /api/v1/identity-admin/actions/category/{category}:
+  *   get:
+  *     summary: Get actions by category
+  *     description: Returns all actions belonging to a specific action category.
+  *     tags:
+- *       - Action Master
++ *       - Resource Actions
+  *     security:
+  *       - bearerAuth: []
+  *     parameters:
+@@ -457,13 +451,13 @@ router.get(
+ 
+ 
+ /**
+- * @swagger
+- * /actions/{actionId}:
++ * @openapi
++ * /api/v1/identity-admin/actions/{actionId}:
+  *   get:
+  *     summary: Get action by ID
+  *     description: Returns an action using its unique identifier.
+  *     tags:
+- *       - Action Master
++ *       - Resource Actions
+  *     security:
+  *       - bearerAuth: []
+  *     parameters:
+@@ -490,13 +484,13 @@ router.get(
+ 
+ 
+ /**
+- * @swagger
+- * /actions:
++ * @openapi
++ * /api/v1/identity-admin/actions:
+  *   post:
+  *     summary: Create action
+  *     description: Creates a new action.
+  *     tags:
+- *       - Action Master
++ *       - Resource Actions
+  *     security:
+  *       - bearerAuth: []
+  *     requestBody:
+@@ -542,13 +536,13 @@ router.post(
+ 
+ 
+ /**
+- * @swagger
+- * /actions/{actionId}:
++ * @openapi
++ * /api/v1/identity-admin/actions/{actionId}:
+  *   put:
+  *     summary: Update action
+  *     description: Updates an existing action.
+  *     tags:
+- *       - Action Master
++ *       - Resource Actions
+  *     security:
+  *       - bearerAuth: []
+  *     parameters:
+@@ -594,13 +588,13 @@ router.put(
+ 
+ 
+ /**
+- * @swagger
+- * /actions/{actionId}:
++ * @openapi
++ * /api/v1/identity-admin/actions/{actionId}:
+  *   delete:
+  *     summary: Delete action
+  *     description: Deactivates or deletes an existing action.
+  *     tags:
+- *       - Action Master
++ *       - Resource Actions
+  *     security:
+  *       - bearerAuth: []
+  *     parameters:
+diff --git a/src/routes/securityPolicyRoutes.js b/src/routes/securityPolicyRoutes.js
+index 8941c8e..0b2b58b 100644
+--- a/src/routes/securityPolicyRoutes.js
++++ b/src/routes/securityPolicyRoutes.js
+@@ -27,13 +27,14 @@ const policySchema = Joi.object({
+  * @openapi
+  * /api/v1/identity-admin/security-policy:
+  *   get:
+- *     summary: Get active password & security policy settings
++ *     summary: Get the tenant's active password & security policy settings
+  *     tags: [Security Policy]
+  *     responses:
+  *       200:
+  *         description: Active security policy details
++ *       404: { $ref: '#/components/responses/NotFound' }
+  *   post:
+- *     summary: Update system security policy configuration
++ *     summary: Update the tenant's security policy configuration (creates a new versioned record)
+  *     tags: [Security Policy]
+  *     requestBody:
+  *       required: true
+@@ -41,15 +42,26 @@ const policySchema = Joi.object({
+  *         application/json:
+  *           schema:
+  *             type: object
++ *             minProperties: 1
+  *             properties:
+- *               minPasswordLength: { type: integer, example: 12 }
++ *               minPasswordLength: { type: integer, minimum: 8, maximum: 128, example: 12 }
+  *               requireUppercase: { type: boolean, example: true }
+- *               requireNumbers: { type: boolean, example: true }
+- *               maxFailedAttempts: { type: integer, example: 5 }
+- *               tokenLifetimeMinutes: { type: integer, example: 120 }
++ *               requireLowercase: { type: boolean, example: true }
++ *               requireNumber: { type: boolean, example: true }
++ *               requireSpecialCharacter: { type: boolean, example: true }
++ *               passwordHistoryCount: { type: integer, minimum: 0, maximum: 24, example: 5 }
++ *               passwordMaxAgeDays: { type: integer, minimum: 1, maximum: 3650, nullable: true, example: 90 }
++ *               maxFailedAttempts: { type: integer, minimum: 1, maximum: 20, example: 5 }
++ *               lockoutDurationMinutes: { type: integer, minimum: 1, maximum: 1440, example: 30 }
++ *               accessTokenLifetimeMinutes: { type: integer, minimum: 5, maximum: 1440, example: 60 }
++ *               refreshTokenLifetimeDays: { type: integer, minimum: 1, maximum: 365, example: 30 }
++ *               maxSessionDurationMinutes: { type: integer, minimum: 5, maximum: 43200, example: 480 }
++ *               maxConcurrentSessions: { type: integer, minimum: 1, maximum: 100, nullable: true, example: 5 }
++ *               mfaRequired: { type: boolean, example: false }
+  *     responses:
+  *       200:
+- *         description: Policy updated successfully
++ *         description: Policy updated; a new version is recorded in the policy history
++ *       400: { $ref: '#/components/responses/ValidationError' }
+  */
+ router.get('/', controller.getActivePolicy);
+ router.post('/', validate(policySchema), controller.updatePolicy);
+@@ -58,12 +70,42 @@ router.post('/', validate(policySchema), controller.updatePolicy);
+  * @openapi
+  * /api/v1/identity-admin/security-policy/history:
+  *   get:
+- *     summary: List all historical versions of the tenant's security policy (paginated)
++ *     summary: List historical versions of the tenant's security policy (paginated)
+  *     tags: [Security Policy]
++ *     parameters:
++ *       - in: query
++ *         name: page
++ *         schema: { type: integer, default: 1 }
++ *       - in: query
++ *         name: limit
++ *         schema: { type: integer, default: 20 }
++ *       - in: query
++ *         name: status
++ *         schema: { type: string, enum: [ACTIVE, INACTIVE] }
++ *     responses:
++ *       200:
++ *         description: Paginated list of historical policy versions
++ *         content:
++ *           application/json:
++ *             schema:
++ *               type: object
++ *               properties:
++ *                 data: { type: array, items: { type: object } }
++ *                 pagination: { $ref: '#/components/schemas/PaginationMeta' }
++ *       400: { $ref: '#/components/responses/ValidationError' }
+  * /api/v1/identity-admin/security-policy/history/{version}:
+  *   get:
+  *     summary: Get a specific historical version of the security policy
+  *     tags: [Security Policy]
++ *     parameters:
++ *       - in: path
++ *         name: version
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: Security policy version detail
++ *       404: { $ref: '#/components/responses/NotFound' }
+  */
+ router.get('/history', validate(historyQuerySchema, 'query'), controller.getPolicyHistory);
+ router.get('/history/:version', validate(Joi.object({ version: id }), 'params'), controller.getPolicyVersion);
+diff --git a/src/routes/serviceAccountRoutes.js b/src/routes/serviceAccountRoutes.js
+index 4e54bad..98f509c 100644
+--- a/src/routes/serviceAccountRoutes.js
++++ b/src/routes/serviceAccountRoutes.js
+@@ -28,11 +28,89 @@ const idParamSchema = Joi.object({ id });
+  * @openapi
+  * /api/v1/identity-admin/service-accounts:
+  *   get:
+- *     summary: List service accounts (paginated, filterable)
++ *     summary: List service accounts (paginated, filterable, searchable)
+  *     tags: [Service Accounts]
++ *     parameters:
++ *       - in: query
++ *         name: page
++ *         schema: { type: integer, default: 1 }
++ *       - in: query
++ *         name: limit
++ *         schema: { type: integer, default: 20 }
++ *       - in: query
++ *         name: status
++ *         schema: { type: string, enum: [ACTIVE, SUSPENDED, EXPIRED, REVOKED] }
++ *       - in: query
++ *         name: search
++ *         schema: { type: string }
++ *     responses:
++ *       200:
++ *         description: Paginated list of service accounts
++ *         content:
++ *           application/json:
++ *             schema:
++ *               type: object
++ *               properties:
++ *                 data: { type: array, items: { type: object } }
++ *                 pagination: { $ref: '#/components/schemas/PaginationMeta' }
++ *       400: { $ref: '#/components/responses/ValidationError' }
+  *   post:
+- *     summary: Create new Service Account (provisions a backing API client)
++ *     summary: Create a service account (provisions a backing API client)
+  *     tags: [Service Accounts]
++ *     requestBody:
++ *       required: true
++ *       content:
++ *         application/json:
++ *           schema:
++ *             type: object
++ *             required: [accountName]
++ *             properties:
++ *               accountName: { type: string, minLength: 3, maxLength: 150, example: "Nightly Reconciliation Job" }
++ *               serviceCode: { type: string, pattern: '^[A-Z0-9_]+$', example: "NIGHTLY_RECON" }
++ *               description: { type: string, nullable: true }
++ *               organizationId: { type: integer, example: 101 }
++ *               expiresOn: { type: string, format: date-time, description: Must be in the future }
++ *     responses:
++ *       201:
++ *         description: Service account created, along with its backing API client credentials (secret returned once)
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ * /api/v1/identity-admin/service-accounts/{id}:
++ *   get:
++ *     summary: Get a service account by ID
++ *     tags: [Service Accounts]
++ *     parameters:
++ *       - in: path
++ *         name: id
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: Service account detail object
++ *       404: { $ref: '#/components/responses/NotFound' }
++ *   patch:
++ *     summary: Update a service account's metadata
++ *     tags: [Service Accounts]
++ *     parameters:
++ *       - in: path
++ *         name: id
++ *         required: true
++ *         schema: { type: integer }
++ *     requestBody:
++ *       required: true
++ *       content:
++ *         application/json:
++ *           schema:
++ *             type: object
++ *             minProperties: 1
++ *             properties:
++ *               accountName: { type: string, minLength: 3, maxLength: 150 }
++ *               description: { type: string, nullable: true }
++ *               expiresOn: { type: string, format: date-time, nullable: true }
++ *     responses:
++ *       200:
++ *         description: Service account updated
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ *       404: { $ref: '#/components/responses/NotFound' }
+  */
+ router.get('/', validate(listQuerySchema, 'query'), controller.getAccounts);
+ router.post('/', validate(serviceAccountSchema), controller.createAccount);
+@@ -45,18 +123,54 @@ router.patch('/:id', validate(idParamSchema, 'params'), validate(serviceAccountU
+  *   patch:
+  *     summary: Temporarily suspend a service account (reversible)
+  *     tags: [Service Accounts]
++ *     parameters:
++ *       - in: path
++ *         name: id
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: Service account suspended
++ *       404: { $ref: '#/components/responses/NotFound' }
+  * /api/v1/identity-admin/service-accounts/{id}/reactivate:
+  *   patch:
+  *     summary: Reactivate a suspended service account
+  *     tags: [Service Accounts]
++ *     parameters:
++ *       - in: path
++ *         name: id
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: Service account reactivated
++ *       404: { $ref: '#/components/responses/NotFound' }
+  * /api/v1/identity-admin/service-accounts/{id}/revoke:
+  *   patch:
+- *     summary: Permanently revoke a service account and its backing client
++ *     summary: Permanently revoke a service account and its backing client (irreversible)
+  *     tags: [Service Accounts]
++ *     parameters:
++ *       - in: path
++ *         name: id
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: Service account revoked
++ *       404: { $ref: '#/components/responses/NotFound' }
+  * /api/v1/identity-admin/service-accounts/{id}/rotate-secret:
+  *   post:
+  *     summary: Rotate the backing API client's secret; revokes outstanding tokens
+  *     tags: [Service Accounts]
++ *     parameters:
++ *       - in: path
++ *         name: id
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: Secret rotated. The new secret is returned once, only in this response.
++ *       404: { $ref: '#/components/responses/NotFound' }
+  */
+ router.patch('/:id/deactivate', controller.deactivateAccount);
+ router.patch('/:id/reactivate', controller.reactivateAccount);
+diff --git a/src/routes/sessionRoutes.js b/src/routes/sessionRoutes.js
+index ef4c16a..36719a9 100644
+--- a/src/routes/sessionRoutes.js
++++ b/src/routes/sessionRoutes.js
+@@ -15,8 +15,36 @@ const sessionListQuerySchema = paginationQuerySchema({
+  * @openapi
+  * /api/v1/identity-admin/users/{userId}/sessions:
+  *   get:
+- *     summary: List a user's sessions (paginated, filterable by status/ip; defaults to ACTIVE)
+- *     tags: [Session Management]
++ *     summary: List a user's sessions (paginated, filterable by status/ip; defaults to status=ACTIVE)
++ *     tags: [Sessions]
++ *     parameters:
++ *       - in: path
++ *         name: userId
++ *         required: true
++ *         schema: { type: integer }
++ *       - in: query
++ *         name: page
++ *         schema: { type: integer, default: 1 }
++ *       - in: query
++ *         name: limit
++ *         schema: { type: integer, default: 20 }
++ *       - in: query
++ *         name: status
++ *         schema: { type: string, enum: [ACTIVE, EXPIRED, REVOKED], default: ACTIVE }
++ *       - in: query
++ *         name: ipAddress
++ *         schema: { type: string, format: ipv4 }
++ *     responses:
++ *       200:
++ *         description: Paginated list of sessions
++ *         content:
++ *           application/json:
++ *             schema:
++ *               type: object
++ *               properties:
++ *                 data: { type: array, items: { type: object } }
++ *                 pagination: { $ref: '#/components/schemas/PaginationMeta' }
++ *       400: { $ref: '#/components/responses/ValidationError' }
+  */
+ router.get('/users/:userId/sessions', validate(userIdParams, 'params'), validate(sessionListQuerySchema, 'query'), controller.getSessions);
+ 
+@@ -25,7 +53,16 @@ router.get('/users/:userId/sessions', validate(userIdParams, 'params'), validate
+  * /api/v1/identity-admin/users/{userId}/sessions/revoke-all:
+  *   post:
+  *     summary: Revoke every active session for a user (e.g. after a credential compromise)
+- *     tags: [Session Management]
++ *     tags: [Sessions]
++ *     parameters:
++ *       - in: path
++ *         name: userId
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: All active sessions revoked
++ *       404: { $ref: '#/components/responses/NotFound' }
+  */
+ router.post('/users/:userId/sessions/revoke-all', validate(userIdParams, 'params'), controller.revokeAllSessions);
+ 
+@@ -33,8 +70,17 @@ router.post('/users/:userId/sessions/revoke-all', validate(userIdParams, 'params
+  * @openapi
+  * /api/v1/identity-admin/sessions/{sessionId}/revoke:
+  *   post:
+- *     summary: Terminate/revoke an active session
+- *     tags: [Session Management]
++ *     summary: Terminate/revoke a single active session
++ *     tags: [Sessions]
++ *     parameters:
++ *       - in: path
++ *         name: sessionId
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: Session revoked
++ *       404: { $ref: '#/components/responses/NotFound' }
+  */
+ router.post('/sessions/:sessionId/revoke', validate(sessionIdParams, 'params'), controller.revokeSession);
+ 
+diff --git a/src/routes/tenantRoutes.js b/src/routes/tenantRoutes.js
+index 0fdfbfe..c6057b6 100644
+--- a/src/routes/tenantRoutes.js
++++ b/src/routes/tenantRoutes.js
+@@ -4,11 +4,12 @@ const tenantController = require("../controllers/tenantController");
+ const { paginationQuerySchema } = require('../utils/pagination');
+ 
+ // Route path relative to /api/v1/identity-admin
++
+ /**
+  * @openapi
+  * /api/v1/identity-admin/tenants/list:
+  *   get:
+- *     summary: List active tenants (always status=ACTIVE; no query filters are currently applied)
++ *     summary: List active tenants for dropdowns (always status=ACTIVE; not paginated)
+  *     tags: [Tenants]
+  *     responses:
+  *       200:
+@@ -40,7 +41,7 @@ router.get("/list", tenantController.getTenants);
+  * @openapi
+  * /api/v1/identity-admin/tenants:
+  *   get:
+- *     summary: List tenant entries for the caller's tenant (paginated, searchable by actor username)
++ *     summary: List tenants (paginated, filterable by status, searchable)
+  *     tags: [Tenants]
+  *     parameters:
+  *       - in: query
+@@ -50,12 +51,14 @@ router.get("/list", tenantController.getTenants);
+  *         name: limit
+  *         schema: { type: integer, default: 20 }
+  *       - in: query
++ *         name: status
++ *         schema: { type: string, enum: [ACTIVE, INACTIVE, DISABLED, DELETED] }
++ *       - in: query
+  *         name: search
+  *         schema: { type: string }
+- *         description: Matches against the acting user's username
+  *     responses:
+  *       200:
+- *         description: Paginated list of audit entries, each joined with the acting user's username and the tenant's name
++ *         description: Paginated list of tenants
+  *         content:
+  *           application/json:
+  *             schema:
+@@ -74,32 +77,8 @@ router.get("/list", tenantController.getTenants);
+  *                       modifiedOn: { type: string, format: date-time }
+  *                 pagination: { $ref: '#/components/schemas/PaginationMeta' }
+  *       400: { $ref: '#/components/responses/ValidationError' }
+- */
+-router.get("/", tenantController.getTenantList);
+-
+-/**
+- * @openapi 
+- * /api/v1/identity-admin/tenants/{tenantUuid}:
+- *   get:
+- *     summary: Get an identity provider by ID
+- *     tags: [Tenants]
+- *     parameters:
+- *       - in: path
+- *         name: tenantUuid
+- *         required: true
+- *         schema: { type: string }
+- *     responses:
+- *       200:
+- *         description: Tenant detail object
+- *       404: { $ref: '#/components/responses/NotFound' }
+- */
+-router.get("/:tenantUuid", tenantController.getTenantById);
+-
+-/**
+- * @openapi
+- * /api/v1/identity-admin/tenants:
+  *   post:
+- *     summary: Create an identity provider
++ *     summary: Create a tenant
+  *     tags: [Tenants]
+  *     requestBody:
+  *       required: true
+@@ -112,19 +91,33 @@ router.get("/:tenantUuid", tenantController.getTenantById);
+  *             properties:
+  *               tenantName:
+  *                 type: string
+- *                 example: "Primary Auth0"
++ *                 maxLength: 250
++ *                 example: "Acme Health"
+  *     responses:
+  *       201:
+  *         description: Tenant created
+  *       400: { $ref: '#/components/responses/ValidationError' }
+  */
++router.get("/", tenantController.getTenantList);
+ router.post("", tenantController.createTenant);
+ 
+-/** 
++/**
+  * @openapi
+  * /api/v1/identity-admin/tenants/{tenantUuid}:
++ *   get:
++ *     summary: Get a tenant by UUID
++ *     tags: [Tenants]
++ *     parameters:
++ *       - in: path
++ *         name: tenantUuid
++ *         required: true
++ *         schema: { type: string }
++ *     responses:
++ *       200:
++ *         description: Tenant detail object
++ *       404: { $ref: '#/components/responses/NotFound' }
+  *   put:
+- *     summary: Replace an tenant's info
++ *     summary: Update a tenant's name
+  *     tags: [Tenants]
+  *     parameters:
+  *       - in: path
+@@ -137,41 +130,35 @@ router.post("", tenantController.createTenant);
+  *         application/json:
+  *           schema:
+  *             type: object
+- *             required: [code, name, type]
+  *             properties:
+- *               tenantCode: { type: string, pattern: '^[A-Z0-9_]+$' }
+- *               tenantName: { type: string }
+-  *     responses:
++ *               tenantName: { type: string, maxLength: 250 }
++ *     responses:
+  *       200:
+  *         description: Tenant updated
+  *       400: { $ref: '#/components/responses/ValidationError' }
+  *       404: { $ref: '#/components/responses/NotFound' }
+- */
+-router.put("/:tenantUuid", tenantController.updateTenant);
+-
+-/** 
+- * @openapi
+- * /api/v1/identity-admin/tenants/{tenantUuid}:
+  *   delete:
+- *     summary: Delete an tenant
++ *     summary: Delete a tenant
+  *     tags: [Tenants]
+  *     parameters:
+  *       - in: path
+  *         name: tenantUuid
+  *         required: true
+- *         schema: { type: string}
++ *         schema: { type: string }
+  *     responses:
+  *       200:
+  *         description: Tenant deleted
+  *       404: { $ref: '#/components/responses/NotFound' }
+  */
++router.get("/:tenantUuid", tenantController.getTenantById);
++router.put("/:tenantUuid", tenantController.updateTenant);
+ router.delete("/:tenantUuid", tenantController.deleteTenant);
+ 
+-/** 
++/**
+  * @openapi
+  * /api/v1/identity-admin/tenants/{tenantUuid}/status:
+  *   patch:
+- *     summary: Update an tenant's status
++ *     summary: Update a tenant's status
+  *     tags: [Tenants]
+  *     parameters:
+  *       - in: path
+@@ -186,10 +173,10 @@ router.delete("/:tenantUuid", tenantController.deleteTenant);
+  *             type: object
+  *             required: [status]
+  *             properties:
+- *               status: { type: string,  enum: [ACTIVE, INACTIVE, DISABLED] }
+-  *     responses:
++ *               status: { type: string, enum: [ACTIVE, INACTIVE, DISABLED, DELETED] }
++ *     responses:
+  *       200:
+- *         description: Tenant updated
++ *         description: Tenant status updated
+  *       400: { $ref: '#/components/responses/ValidationError' }
+  *       404: { $ref: '#/components/responses/NotFound' }
+  */
+diff --git a/src/routes/userRoutes.js b/src/routes/userRoutes.js
+index 16b55d7..3155f56 100644
+--- a/src/routes/userRoutes.js
++++ b/src/routes/userRoutes.js
+@@ -38,66 +38,131 @@ const roleUpdateSchema = Joi.object({
+ }).min(1);
+ 
+ /**
+- * @swagger
+- * tags:
+- *   name: User Administration
+- *   description: Administrative APIs for users and user role assignments
+- */
+-
+-/**
+- * @swagger
++ * @openapi
+  * /api/v1/identity-admin/users:
+  *   get:
+- *     summary: Retrieve list of users
+- *     tags: [User Administration]
++ *     summary: List users for the caller's tenant (paginated, filterable, searchable)
++ *     tags: [Users]
++ *     parameters:
++ *       - in: query
++ *         name: page
++ *         schema: { type: integer, default: 1 }
++ *       - in: query
++ *         name: limit
++ *         schema: { type: integer, default: 20 }
++ *       - in: query
++ *         name: status
++ *         schema: { type: string, enum: [ACTIVE, INACTIVE, SUSPENDED] }
++ *       - in: query
++ *         name: userType
++ *         schema: { type: string }
++ *       - in: query
++ *         name: search
++ *         schema: { type: string }
++ *         description: Matches against username, name, and email
+  *     responses:
+  *       200:
+- *         description: List of registered system users
++ *         description: Paginated list of users
++ *         content:
++ *           application/json:
++ *             schema:
++ *               type: object
++ *               properties:
++ *                 data:
++ *                   type: array
++ *                   items: { type: object }
++ *                 pagination: { $ref: '#/components/schemas/PaginationMeta' }
++ *       400: { $ref: '#/components/responses/ValidationError' }
+  *   post:
+- *     summary: Create a new user
+- *     tags: [User Administration]
++ *     summary: Create a user
++ *     tags: [Users]
+  *     requestBody:
+  *       required: true
+  *       content:
+  *         application/json:
+  *           schema:
+  *             type: object
+- *             required:
+- *               - username
+- *               - email
+- *               - firstName
+- *               - lastName
++ *             required: [tenantUuid, username, email, firstName, lastName, displayName, phoneCountryCode, phoneNumber]
+  *             properties:
+- *               username:
+- *                 type: string
+- *                 example: "jdoe"
+- *               email:
+- *                 type: string
+- *                 example: "jdoe@example.com"
+- *               firstName:
+- *                 type: string
+- *                 example: "John"
+- *               lastName:
+- *                 type: string
+- *                 example: "Doe"
+- *               userType:
+- *                 type: string
+- *                 example: "USER"
++ *               tenantUuid: { type: string, example: "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d" }
++ *               username: { type: string, example: "jdoe" }
++ *               email: { type: string, format: email, example: "jdoe@example.com" }
++ *               firstName: { type: string, example: "John" }
++ *               lastName: { type: string, example: "Doe" }
++ *               middleName: { type: string, example: "" }
++ *               displayName: { type: string, example: "John Doe" }
++ *               phoneCountryCode: { type: string, example: "+1" }
++ *               phoneNumber: { type: string, example: "5551234567" }
++ *               userType: { type: string, default: "USER", example: "USER" }
+  *     responses:
+  *       201:
+- *         description: User created successfully
++ *         description: User created
++ *       400: { $ref: '#/components/responses/ValidationError' }
+  */
+ router.get('/', validate(userListQuerySchema, 'query'), userController.getUsers);
+ router.post('/', validate(userSchema), userController.createUser);
++
++/**
++ * @openapi
++ * /api/v1/identity-admin/users/{userId}:
++ *   patch:
++ *     summary: Update a user's profile fields
++ *     tags: [Users]
++ *     parameters:
++ *       - in: path
++ *         name: userId
++ *         required: true
++ *         schema: { type: integer }
++ *     requestBody:
++ *       required: true
++ *       content:
++ *         application/json:
++ *           schema:
++ *             type: object
++ *             required: [tenantUuid, username, email, firstName, lastName, displayName, phoneCountryCode, phoneNumber]
++ *             properties:
++ *               tenantUuid: { type: string }
++ *               username: { type: string }
++ *               email: { type: string, format: email }
++ *               firstName: { type: string }
++ *               lastName: { type: string }
++ *               middleName: { type: string }
++ *               displayName: { type: string }
++ *               phoneCountryCode: { type: string }
++ *               phoneNumber: { type: string }
++ *               userType: { type: string }
++ *     responses:
++ *       200:
++ *         description: User updated
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ *       404: { $ref: '#/components/responses/NotFound' }
++ */
+ router.patch('/:userId', validate(userSchema), userController.updateUser);
++
++/**
++ * @openapi
++ * /api/v1/identity-admin/users/{userId}/status:
++ *   patch:
++ *     summary: Deactivate/soft-delete a user
++ *     tags: [Users]
++ *     parameters:
++ *       - in: path
++ *         name: userId
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: User status updated
++ *       404: { $ref: '#/components/responses/NotFound' }
++ */
+ router.patch('/:userId/status',  userController.deleteUser)
+ 
+ /**
+- * @swagger
++ * @openapi
+  * /api/v1/identity-admin/users/{userId}:
+  *   get:
+- *     summary: Get user details by user ID
+- *     tags: [User Administration]
++ *     summary: Get a user by ID
++ *     tags: [Users]
+  *     parameters:
+  *       - in: path
+  *         name: userId
+@@ -107,17 +172,16 @@ router.patch('/:userId/status',  userController.deleteUser)
+  *     responses:
+  *       200:
+  *         description: User detail object
+- *       404:
+- *         description: User not found
++ *       404: { $ref: '#/components/responses/NotFound' }
+  */
+ router.get('/:userId', userController.getUserById);
+ 
+ /**
+- * @swagger
++ * @openapi
+  * /api/v1/identity-admin/users/{userId}/roles:
+  *   get:
+  *     summary: Get roles assigned to a user
+- *     tags: [User Administration]
++ *     tags: [Users]
+  *     parameters:
+  *       - in: path
+  *         name: userId
+@@ -127,9 +191,10 @@ router.get('/:userId', userController.getUserById);
+  *     responses:
+  *       200:
+  *         description: List of roles associated with the user
++ *       404: { $ref: '#/components/responses/NotFound' }
+  *   post:
+  *     summary: Assign a role to a user
+- *     tags: [User Administration]
++ *     tags: [Users]
+  *     parameters:
+  *       - in: path
+  *         name: userId
+@@ -143,25 +208,63 @@ router.get('/:userId', userController.getUserById);
+  *           schema:
+  *             type: object
+  *             required:
+- *               - roleId
++ *               - roleIds
+  *             properties:
+- *               roleId:
+- *                 type: integer
+- *                 example: 10
++ *               roleIds:
++ *                 type: array
++ *                 items: { type: integer }
++ *                 example: [10]
+  *               effectiveFrom:
+  *                 type: string
+  *                 format: date-time
++ *                 nullable: true
+  *                 example: "2026-08-14T00:00:00Z"
+  *               effectiveTo:
+  *                 type: string
+  *                 format: date-time
++ *                 nullable: true
+  *                 example: null
+  *     responses:
+  *       200:
+- *         description: Role assigned successfully
++ *         description: Role(s) assigned successfully
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ *       404: { $ref: '#/components/responses/NotFound' }
+  */
+ router.get('/:userId/roles', userController.getUserRoles);
+ router.post('/:userId/roles', validate(roleAssignmentSchema), userController.assignRole);
++
++/**
++ * @openapi
++ * /api/v1/identity-admin/users/{userId}/roles/{userRoleId}:
++ *   patch:
++ *     summary: Update a user's role assignment (status or effective dates)
++ *     tags: [Users]
++ *     parameters:
++ *       - in: path
++ *         name: userId
++ *         required: true
++ *         schema: { type: integer }
++ *       - in: path
++ *         name: userRoleId
++ *         required: true
++ *         schema: { type: integer }
++ *     requestBody:
++ *       required: true
++ *       content:
++ *         application/json:
++ *           schema:
++ *             type: object
++ *             minProperties: 1
++ *             properties:
++ *               status: { type: string, enum: [ACTIVE, INACTIVE] }
++ *               effectiveFrom: { type: string, format: date-time, nullable: true }
++ *               effectiveTo: { type: string, format: date-time, nullable: true }
++ *     responses:
++ *       200:
++ *         description: Role assignment updated
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ *       404: { $ref: '#/components/responses/NotFound' }
++ */
+ router.patch('/:userId/roles/:userRoleId', validate(userRoleParamSchema, 'params'), validate(roleUpdateSchema), userController.updateUserRole);
+ 
+ /**
+@@ -170,17 +273,73 @@ router.patch('/:userId/roles/:userRoleId', validate(userRoleParamSchema, 'params
+  *   put:
+  *     summary: Set/change a user's password
+  *     tags: [Credentials]
++ *     parameters:
++ *       - in: path
++ *         name: userId
++ *         required: true
++ *         schema: { type: integer }
++ *     requestBody:
++ *       required: true
++ *       content:
++ *         application/json:
++ *           schema:
++ *             type: object
++ *             required: [password]
++ *             properties:
++ *               password: { type: string, format: password, minLength: 8, example: "S3curePass!23" }
++ *     responses:
++ *       200:
++ *         description: Password updated
++ *       400: { $ref: '#/components/responses/ValidationError' }
++ *       422:
++ *         description: Password fails the tenant's security policy (complexity/reuse)
+  *   delete:
+  *     summary: Revoke the user's password credential (blocks password login)
+  *     tags: [Credentials]
++ *     parameters:
++ *       - in: path
++ *         name: userId
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: Credential revoked
++ *       404: { $ref: '#/components/responses/NotFound' }
+  * /api/v1/identity-admin/users/{userId}/password/rotate:
+  *   post:
+  *     summary: Administrative forced password rotation (flags rotation_required)
+  *     tags: [Credentials]
++ *     parameters:
++ *       - in: path
++ *         name: userId
++ *         required: true
++ *         schema: { type: integer }
++ *     requestBody:
++ *       required: true
++ *       content:
++ *         application/json:
++ *           schema:
++ *             type: object
++ *             required: [password]
++ *             properties:
++ *               password: { type: string, format: password, minLength: 8 }
++ *     responses:
++ *       200:
++ *         description: Password rotated; rotation_required flag set
++ *       400: { $ref: '#/components/responses/ValidationError' }
+  * /api/v1/identity-admin/users/{userId}/password/status:
+  *   get:
+  *     summary: Get password credential lifecycle status (expiry, lock, rotation flag)
+  *     tags: [Credentials]
++ *     parameters:
++ *       - in: path
++ *         name: userId
++ *         required: true
++ *         schema: { type: integer }
++ *     responses:
++ *       200:
++ *         description: "{ expiresOn, locked, lockedUntil, rotationRequired }"
++ *       404: { $ref: '#/components/responses/NotFound' }
+  */
+ router.put('/:userId/password', validate(passwordSchema), credentialController.setPassword);
+ router.post('/:userId/password/rotate', validate(passwordSchema), credentialController.rotatePassword);
+diff --git a/src/routes/wellKnownRoutes.js b/src/routes/wellKnownRoutes.js
+index c857cea..d75e70a 100644
+--- a/src/routes/wellKnownRoutes.js
++++ b/src/routes/wellKnownRoutes.js
+@@ -9,7 +9,7 @@ const tokenService = require('../security/tokenService');
+  *     summary: Public JSON Web Key Set
+  *     description: Returns the public RSA signing key used to verify JWTs issued by the Identity Admin Service.
+  *     tags:
+- *       - Authentication
++ *       - Well-Known
+  *     responses:
+  *       200:
+  *         description: RFC 7517 JSON Web Key Set
+diff --git a/src/services/resourceActionService.js b/src/services/resourceActionService.js
+index 6d0433d..7b6c9b1 100644
+--- a/src/services/resourceActionService.js
++++ b/src/services/resourceActionService.js
+@@ -26,7 +26,7 @@ class ResourceActionService {
+     if (status) where.status = status;
+     if (search) {
+       where[Op.or] = [
+-        { role_name: { [Op.like]: `%${search}%` } },
++        { resource_name: { [Op.like]: `%${search}%` } },
+         { description: { [Op.like]: `%${search}%` } },
+       ];
+     }
+@@ -158,7 +158,7 @@ class ResourceActionService {
+     if (status) where.status = status;
+     if (search) {
+       where[Op.or] = [
+-        { role_name: { [Op.like]: `%${search}%` } },
++        { action_name: { [Op.like]: `%${search}%` } },
+         { description: { [Op.like]: `%${search}%` } },
+       ];
+     }
+diff --git a/tests/resource-action-service.test.js b/tests/resource-action-service.test.js
+new file mode 100644
+index 0000000..e10584b
+--- /dev/null
++++ b/tests/resource-action-service.test.js
+@@ -0,0 +1,50 @@
++const test = require('node:test');
++const assert = require('node:assert/strict');
++
++const db = require('../src/models');
++const resourceActionService = require('../src/services/resourceActionService');
++
++function searchedFields(query) {
++  const orSymbol = Object.getOwnPropertySymbols(query.where)[0];
++  return query.where[orSymbol].map((condition) => Object.keys(condition)[0]);
++}
++
++test('getResources searches resource_name, not Roles.role_name (regression: copy-pasted where clause)', async () => {
++  const original = db.ResourceMaster.findAndCountAll;
++  let captured;
++
++  db.ResourceMaster.findAndCountAll = async (query) => {
++    captured = query;
++    return { count: 0, rows: [] };
++  };
++
++  try {
++    await resourceActionService.getResources({ search: 'user' });
++
++    const fields = searchedFields(captured);
++    assert.ok(fields.includes('resource_name'), 'should search resource_name');
++    assert.ok(!fields.includes('role_name'), 'must not search role_name (ResourceMaster has no such column)');
++  } finally {
++    db.ResourceMaster.findAndCountAll = original;
++  }
++});
++
++test('getActions searches action_name, not Roles.role_name (regression: copy-pasted where clause)', async () => {
++  const original = db.ActionMaster.findAndCountAll;
++  let captured;
++
++  db.ActionMaster.findAndCountAll = async (query) => {
++    captured = query;
++    return { count: 0, rows: [] };
++  };
++
++  try {
++    await resourceActionService.getActions({ search: 'create' });
++
++    const fields = searchedFields(captured);
++    assert.ok(fields.includes('action_name'), 'should search action_name');
++    assert.ok(!fields.includes('role_name'), 'must not search role_name (ActionMaster has no such column)');
++  } finally {
++    db.ActionMaster.findAndCountAll = original;
++  }
++});

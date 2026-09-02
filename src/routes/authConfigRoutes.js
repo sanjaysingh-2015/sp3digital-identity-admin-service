@@ -16,7 +16,7 @@ const authConfigSchema = Joi.object({
  * /api/v1/identity-admin/auth-configs/{tenantUuid}:
  *   get:
  *     summary: Retrieve authentication policy config by Tenant
- *     tags: [Authentication Configuration]
+ *     tags: [Auth Config]
  *     parameters:
  *       - in: path
  *         name: tenantUuid
@@ -25,9 +25,11 @@ const authConfigSchema = Joi.object({
  *     responses:
  *       200:
  *         description: Tenant Auth Config details
+ *       403: { $ref: '#/components/responses/Forbidden' }
+ *       404: { $ref: '#/components/responses/NotFound' }
  *   put:
  *     summary: Update tenant authentication configuration
- *     tags: [Authentication Configuration]
+ *     tags: [Auth Config]
  *     parameters:
  *       - in: path
  *         name: tenantUuid
@@ -47,6 +49,9 @@ const authConfigSchema = Joi.object({
  *     responses:
  *       200:
  *         description: Config updated successfully
+ *       400: { $ref: '#/components/responses/ValidationError' }
+ *       403: { $ref: '#/components/responses/Forbidden' }
+ *       404: { $ref: '#/components/responses/NotFound' }
  */
 router.get('/:tenantUuid', tenantMatchesPath('tenantUuid'), controller.getConfig);
 router.put('/:tenantUuid', tenantMatchesPath('tenantUuid'), validate(authConfigSchema), controller.updateConfig);

@@ -11,27 +11,20 @@ const resourceActionController =
 // const authorize =
 //   require("../middleware/authorization");
 
-/**
- * @swagger
- * tags:
- *   - name: Resource Master
- *     description: Resource master management APIs
- *   - name: Action Master
- *     description: Action master management APIs
- */
+// Tag ("Resource Actions") is registered globally in src/config/swagger.js
 
 // =========================================================
 // RESOURCE MASTER
 // =========================================================
 
 /**
- * @swagger
- * /resources/categories:
+ * @openapi
+ * /api/v1/identity-admin/resources/categories:
  *   get:
  *     summary: Get resource categories
  *     description: Returns all distinct active resource categories.
  *     tags:
- *       - Resource Master
+ *       - Resource Actions
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -60,13 +53,13 @@ router.get(
 
 
 /**
- * @swagger
- * /resources:
+ * @openapi
+ * /api/v1/identity-admin/resources:
  *   get:
  *     summary: Get resources
  *     description: Returns a paginated list of resources.
  *     tags:
- *       - Resource Master
+ *       - Resource Actions
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -95,13 +88,6 @@ router.get(
  *         description: Resource status.
  *
  *       - in: query
- *         name: userType
- *         schema:
- *           type: string
- *           example: ADMIN
- *         description: User type filter.
- *
- *       - in: query
  *         name: search
  *         schema:
  *           type: string
@@ -110,7 +96,14 @@ router.get(
  *
  *     responses:
  *       200:
- *         description: Resources retrieved successfully.
+ *         description: Paginated list of resources.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data: { type: array, items: { type: object } }
+ *                 pagination: { $ref: '#/components/schemas/PaginationMeta' }
  *       401:
  *         description: Unauthorized.
  *       403:
@@ -123,13 +116,13 @@ router.get(
 
 
 /**
- * @swagger
- * /resources/category/{category}:
+ * @openapi
+ * /api/v1/identity-admin/resources/category/{category}:
  *   get:
  *     summary: Get resources by category
  *     description: Returns all resources belonging to a specific resource category.
  *     tags:
- *       - Resource Master
+ *       - Resource Actions
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -157,13 +150,13 @@ router.get(
 
 
 /**
- * @swagger
- * /resources/{resourceId}:
+ * @openapi
+ * /api/v1/identity-admin/resources/{resourceId}:
  *   get:
  *     summary: Get resource by ID
  *     description: Returns a resource using its unique identifier.
  *     tags:
- *       - Resource Master
+ *       - Resource Actions
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -190,13 +183,13 @@ router.get(
 
 
 /**
- * @swagger
- * /resources:
+ * @openapi
+ * /api/v1/identity-admin/resources:
  *   post:
  *     summary: Create resource
  *     description: Creates a new resource.
  *     tags:
- *       - Resource Master
+ *       - Resource Actions
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -242,13 +235,13 @@ router.post(
 
 
 /**
- * @swagger
- * /resources/{resourceId}:
+ * @openapi
+ * /api/v1/identity-admin/resources/{resourceId}:
  *   put:
  *     summary: Update resource
  *     description: Updates an existing resource.
  *     tags:
- *       - Resource Master
+ *       - Resource Actions
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -294,13 +287,13 @@ router.put(
 
 
 /**
- * @swagger
- * /resources/{resourceId}:
+ * @openapi
+ * /api/v1/identity-admin/resources/{resourceId}:
  *   delete:
  *     summary: Delete resource
  *     description: Deactivates or deletes an existing resource.
  *     tags:
- *       - Resource Master
+ *       - Resource Actions
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -331,13 +324,13 @@ router.delete(
 // =========================================================
 
 /**
- * @swagger
- * /actions/categories:
+ * @openapi
+ * /api/v1/identity-admin/actions/categories:
  *   get:
  *     summary: Get action categories
  *     description: Returns all distinct active action categories.
  *     tags:
- *       - Action Master
+ *       - Resource Actions
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -366,13 +359,13 @@ router.get(
 
 
 /**
- * @swagger
- * /actions:
+ * @openapi
+ * /api/v1/identity-admin/actions:
  *   get:
  *     summary: Get actions
  *     description: Returns a paginated list of actions.
  *     tags:
- *       - Action Master
+ *       - Resource Actions
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -398,12 +391,6 @@ router.get(
  *           example: ACTIVE
  *
  *       - in: query
- *         name: userType
- *         schema:
- *           type: string
- *           example: ADMIN
- *
- *       - in: query
  *         name: search
  *         schema:
  *           type: string
@@ -411,7 +398,14 @@ router.get(
  *
  *     responses:
  *       200:
- *         description: Actions retrieved successfully.
+ *         description: Paginated list of actions.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data: { type: array, items: { type: object } }
+ *                 pagination: { $ref: '#/components/schemas/PaginationMeta' }
  *       401:
  *         description: Unauthorized.
  *       403:
@@ -424,13 +418,13 @@ router.get(
 
 
 /**
- * @swagger
- * /actions/category/{category}:
+ * @openapi
+ * /api/v1/identity-admin/actions/category/{category}:
  *   get:
  *     summary: Get actions by category
  *     description: Returns all actions belonging to a specific action category.
  *     tags:
- *       - Action Master
+ *       - Resource Actions
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -457,13 +451,13 @@ router.get(
 
 
 /**
- * @swagger
- * /actions/{actionId}:
+ * @openapi
+ * /api/v1/identity-admin/actions/{actionId}:
  *   get:
  *     summary: Get action by ID
  *     description: Returns an action using its unique identifier.
  *     tags:
- *       - Action Master
+ *       - Resource Actions
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -490,13 +484,13 @@ router.get(
 
 
 /**
- * @swagger
- * /actions:
+ * @openapi
+ * /api/v1/identity-admin/actions:
  *   post:
  *     summary: Create action
  *     description: Creates a new action.
  *     tags:
- *       - Action Master
+ *       - Resource Actions
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -542,13 +536,13 @@ router.post(
 
 
 /**
- * @swagger
- * /actions/{actionId}:
+ * @openapi
+ * /api/v1/identity-admin/actions/{actionId}:
  *   put:
  *     summary: Update action
  *     description: Updates an existing action.
  *     tags:
- *       - Action Master
+ *       - Resource Actions
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -594,13 +588,13 @@ router.put(
 
 
 /**
- * @swagger
- * /actions/{actionId}:
+ * @openapi
+ * /api/v1/identity-admin/actions/{actionId}:
  *   delete:
  *     summary: Delete action
  *     description: Deactivates or deletes an existing action.
  *     tags:
- *       - Action Master
+ *       - Resource Actions
  *     security:
  *       - bearerAuth: []
  *     parameters:

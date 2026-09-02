@@ -4,11 +4,12 @@ const tenantController = require("../controllers/tenantController");
 const { paginationQuerySchema } = require('../utils/pagination');
 
 // Route path relative to /api/v1/identity-admin
+
 /**
  * @openapi
  * /api/v1/identity-admin/tenants/list:
  *   get:
- *     summary: List active tenants (always status=ACTIVE; no query filters are currently applied)
+ *     summary: List active tenants for dropdowns (always status=ACTIVE; not paginated)
  *     tags: [Tenants]
  *     responses:
  *       200:
@@ -40,7 +41,7 @@ router.get("/list", tenantController.getTenants);
  * @openapi
  * /api/v1/identity-admin/tenants:
  *   get:
- *     summary: List tenant entries for the caller's tenant (paginated, searchable by actor username)
+ *     summary: List tenants (paginated, filterable by status, searchable)
  *     tags: [Tenants]
  *     parameters:
  *       - in: query
@@ -50,12 +51,14 @@ router.get("/list", tenantController.getTenants);
  *         name: limit
  *         schema: { type: integer, default: 20 }
  *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [ACTIVE, INACTIVE, DISABLED, DELETED] }
+ *       - in: query
  *         name: search
  *         schema: { type: string }
- *         description: Matches against the acting user's username
  *     responses:
  *       200:
- *         description: Paginated list of audit entries, each joined with the acting user's username and the tenant's name
+ *         description: Paginated list of tenants
  *         content:
  *           application/json:
  *             schema:
@@ -74,32 +77,8 @@ router.get("/list", tenantController.getTenants);
  *                       modifiedOn: { type: string, format: date-time }
  *                 pagination: { $ref: '#/components/schemas/PaginationMeta' }
  *       400: { $ref: '#/components/responses/ValidationError' }
- */
-router.get("/", tenantController.getTenantList);
-
-/**
- * @openapi 
- * /api/v1/identity-admin/tenants/{tenantUuid}:
- *   get:
- *     summary: Get an identity provider by ID
- *     tags: [Tenants]
- *     parameters:
- *       - in: path
- *         name: tenantUuid
- *         required: true
- *         schema: { type: string }
- *     responses:
- *       200:
- *         description: Tenant detail object
- *       404: { $ref: '#/components/responses/NotFound' }
- */
-router.get("/:tenantUuid", tenantController.getTenantById);
-
-/**
- * @openapi
- * /api/v1/identity-admin/tenants:
  *   post:
- *     summary: Create an identity provider
+ *     summary: Create a tenant
  *     tags: [Tenants]
  *     requestBody:
  *       required: true
@@ -112,19 +91,33 @@ router.get("/:tenantUuid", tenantController.getTenantById);
  *             properties:
  *               tenantName:
  *                 type: string
- *                 example: "Primary Auth0"
+ *                 maxLength: 250
+ *                 example: "Acme Health"
  *     responses:
  *       201:
  *         description: Tenant created
  *       400: { $ref: '#/components/responses/ValidationError' }
  */
+router.get("/", tenantController.getTenantList);
 router.post("", tenantController.createTenant);
 
-/** 
+/**
  * @openapi
  * /api/v1/identity-admin/tenants/{tenantUuid}:
+ *   get:
+ *     summary: Get a tenant by UUID
+ *     tags: [Tenants]
+ *     parameters:
+ *       - in: path
+ *         name: tenantUuid
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Tenant detail object
+ *       404: { $ref: '#/components/responses/NotFound' }
  *   put:
- *     summary: Replace an tenant's info
+ *     summary: Update a tenant's name
  *     tags: [Tenants]
  *     parameters:
  *       - in: path
@@ -137,41 +130,35 @@ router.post("", tenantController.createTenant);
  *         application/json:
  *           schema:
  *             type: object
- *             required: [code, name, type]
  *             properties:
- *               tenantCode: { type: string, pattern: '^[A-Z0-9_]+$' }
- *               tenantName: { type: string }
-  *     responses:
+ *               tenantName: { type: string, maxLength: 250 }
+ *     responses:
  *       200:
  *         description: Tenant updated
  *       400: { $ref: '#/components/responses/ValidationError' }
  *       404: { $ref: '#/components/responses/NotFound' }
- */
-router.put("/:tenantUuid", tenantController.updateTenant);
-
-/** 
- * @openapi
- * /api/v1/identity-admin/tenants/{tenantUuid}:
  *   delete:
- *     summary: Delete an tenant
+ *     summary: Delete a tenant
  *     tags: [Tenants]
  *     parameters:
  *       - in: path
  *         name: tenantUuid
  *         required: true
- *         schema: { type: string}
+ *         schema: { type: string }
  *     responses:
  *       200:
  *         description: Tenant deleted
  *       404: { $ref: '#/components/responses/NotFound' }
  */
+router.get("/:tenantUuid", tenantController.getTenantById);
+router.put("/:tenantUuid", tenantController.updateTenant);
 router.delete("/:tenantUuid", tenantController.deleteTenant);
 
-/** 
+/**
  * @openapi
  * /api/v1/identity-admin/tenants/{tenantUuid}/status:
  *   patch:
- *     summary: Update an tenant's status
+ *     summary: Update a tenant's status
  *     tags: [Tenants]
  *     parameters:
  *       - in: path
@@ -186,10 +173,10 @@ router.delete("/:tenantUuid", tenantController.deleteTenant);
  *             type: object
  *             required: [status]
  *             properties:
- *               status: { type: string,  enum: [ACTIVE, INACTIVE, DISABLED] }
-  *     responses:
+ *               status: { type: string, enum: [ACTIVE, INACTIVE, DISABLED, DELETED] }
+ *     responses:
  *       200:
- *         description: Tenant updated
+ *         description: Tenant status updated
  *       400: { $ref: '#/components/responses/ValidationError' }
  *       404: { $ref: '#/components/responses/NotFound' }
  */

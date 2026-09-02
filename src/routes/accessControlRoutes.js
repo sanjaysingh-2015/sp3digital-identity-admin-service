@@ -11,7 +11,7 @@ const facilitySchema = Joi.object({ facilityId: Joi.number().integer().positive(
  * /api/v1/identity-admin/users/{userId}/organizations:
  *   post:
  *     summary: Assign user to Organization
- *     tags: [Organization Access]
+ *     tags: [Access Control]
  *     parameters:
  *       - in: path
  *         name: userId
@@ -28,6 +28,8 @@ const facilitySchema = Joi.object({ facilityId: Joi.number().integer().positive(
  *     responses:
  *       201:
  *         description: Organization access granted
+ *       400: { $ref: '#/components/responses/ValidationError' }
+ *       404: { $ref: '#/components/responses/NotFound' }
  */
 router.post('/users/:userId/organizations', validate(organizationSchema), controller.assignOrganization);
 
@@ -36,7 +38,7 @@ router.post('/users/:userId/organizations', validate(organizationSchema), contro
  * /api/v1/identity-admin/users/{userId}/facilities:
  *   post:
  *     summary: Assign user to Facility
- *     tags: [Facility Access]
+ *     tags: [Access Control]
  *     parameters:
  *       - in: path
  *         name: userId
@@ -53,6 +55,8 @@ router.post('/users/:userId/organizations', validate(organizationSchema), contro
  *     responses:
  *       201:
  *         description: Facility access granted
+ *       400: { $ref: '#/components/responses/ValidationError' }
+ *       404: { $ref: '#/components/responses/NotFound' }
  */
 router.post('/users/:userId/facilities', validate(facilitySchema), controller.assignFacility);
 
