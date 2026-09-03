@@ -25,7 +25,11 @@ const ORG_SERVICE_INTERNAL_TOKEN =
 const TENANT_ADMIN_ROLE_CODE =
   process.env.TENANT_ADMIN_ROLE_CODE || "TENANT_ADMIN";
 
-function registrationError(message, statusCode = 400, code = "REGISTRATION_FAILED") {
+function registrationError(
+  message,
+  statusCode = 400,
+  code = "REGISTRATION_FAILED",
+) {
   const error = new Error(message);
   error.statusCode = statusCode;
   error.code = code;
@@ -69,19 +73,25 @@ class RegistrationService {
     organizationName,
     organizationType,
     parentOrganizationId,
-    userId
+    userId,
   }) {
     try {
       const response = await axios.post(
-        `${ORG_SERVICE_URL}/api/v1/organization-admin/organizations`,
+        `${ORG_SERVICE_URL}/api/v1/organization-admin/internal/organizations`,
         {
           tenantUuid,
           organizationName,
           organizationType,
           parentOrganizationId: parentOrganizationId ?? null,
-          userId
+          userId,
         },
-        { timeout: ORG_SERVICE_TIMEOUT_MS, headers: orgServiceHeaders(tenantUuid) },
+        {
+          timeout: ORG_SERVICE_TIMEOUT_MS,
+          headers: {
+            ...orgServiceHeaders(tenantUuid),
+            "x-internal-service-token": process.env.INTERNAL_SERVICE_TOKEN,
+          },
+        },
       );
 
       return response.data;
@@ -113,7 +123,10 @@ class RegistrationService {
     try {
       await axios.delete(
         `${ORG_SERVICE_URL}/api/v1/organization-admin/organizations/${organizationId}`,
-        { timeout: ORG_SERVICE_TIMEOUT_MS, headers: orgServiceHeaders(tenantUuid) },
+        {
+          timeout: ORG_SERVICE_TIMEOUT_MS,
+          headers: orgServiceHeaders(tenantUuid),
+        },
       );
     } catch (cleanupError) {
       console.error(
@@ -235,13 +248,21 @@ class RegistrationService {
       if (user?.userId) {
         console.error(
           "[registerOrganization] Registration failed after user creation — user row may need manual cleanup:",
-          { userId: user.userId, tenantUuid: tenant?.tenantUuid, error: error.message },
+          {
+            userId: user.userId,
+            tenantUuid: tenant?.tenantUuid,
+            error: error.message,
+          },
         );
       }
 
       if (organization) {
-        const organizationId = organization.organizationId ?? organization.organization_id;
-        await this._deleteOrganizationBestEffort(organizationId, tenant?.tenantUuid);
+        const organizationId =
+          organization.organizationId ?? organization.organization_id;
+        await this._deleteOrganizationBestEffort(
+          organizationId,
+          tenant?.tenantUuid,
+        );
       }
 
       if (tenant?.tenantUuid) {
@@ -273,8 +294,10 @@ class RegistrationService {
       ...loginResult,
       tenantUuid: tenant.tenantUuid,
       tenantCode: tenant.tenantCode,
-      organizationId: organization.organizationId ?? organization.organization_id ?? null,
-      organizationUuid: organization.organizationUuid ?? organization.organization_uuid ?? null,
+      organizationId:
+        organization.organizationId ?? organization.organization_id ?? null,
+      organizationUuid:
+        organization.organizationUuid ?? organization.organization_uuid ?? null,
       userId: user.userId,
       userUuid: user.userUuid,
     };
