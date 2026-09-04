@@ -213,10 +213,13 @@ function authorize(requiredPermission) {
       // ALL_PERMISSIONS means the JWT itself grants everything
       const tokenAllowsAll =
         tokenScopes.has("ALL_PERMISSIONS") ||
-        tokenScopes.has("identity-admin:*");
-
+        tokenScopes.has("identity-admin:*") || 
+        tokenScopes.has("IDENTITY-ADMIN:TENANT_USERS:*");
+console.log("tokenScopes ==> ",tokenScopes);
+console.log("requiredPermission ==> ",requiredPermission);       
+console.log("tokenAllowsAll ==> ", tokenAllowsAll);
       const tokenAllowsSpecific = tokenScopes.has(requiredPermission);
-
+console.log("tokenAllowsSpecific ==> ", tokenAllowsSpecific);
       const tokenAllows = tokenAllowsAll || tokenAllowsSpecific;
 
       // ---------------------------------------------------------
@@ -225,6 +228,7 @@ function authorize(requiredPermission) {
       const roleAllowsAll =
         permissions.has("ALL_PERMISSIONS") ||
         permissions.has("identity-admin:*");
+        permissions.has("identity-admin:tenant_users:*")
 
       const roleAllowsSpecific = permissions.has(requiredPermission);
 
