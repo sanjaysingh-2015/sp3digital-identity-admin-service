@@ -4,7 +4,7 @@ const helmet = require('helmet');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./config/swagger');
 const db = require('./models'); // Imports index.js which loads all models & sequelize
-const { authenticate, authorize } = require('./middleware/authentication');
+const { authenticate, authorize, methodToActions } = require('./middleware/authentication');
 const { auditWrites } = require('./middleware/audit');
 const authController = require('./controllers/authController');
 const publicController = require('./controllers/publicController');
@@ -60,7 +60,7 @@ const authorizeAdminRequest = (req, res, next) => {
   const permission = req.method === 'GET' || req.method === 'HEAD'
     ? 'identity-admin:read'
     : 'identity-admin:write';
-  return authorize(permission)(req, res, next);
+  return authorize(permission, methodToActions(req.method))(req, res, next);
 };
 
 app.post('/api/v1/identity-admin/auth/login', authController.login)

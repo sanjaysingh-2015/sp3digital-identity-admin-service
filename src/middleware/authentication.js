@@ -143,7 +143,29 @@ async function resolveUser(claims) {
   return null;
 }
 
-function authorize(requiredPermission) {
+// Maps an HTTP method to the fine-grained scope action(s) that satisfy it,
+// e.g. GET -> READ, POST -> CREATE, PUT/PATCH -> UPDATE, DELETE -> DELETE.
+// Used so tokens carrying resource-scoped claims like
+// "IDENTITY-ADMIN:TENANT_USERS:READ" satisfy the coarse per-request gate,
+// not just the flat "identity-admin:read"/"identity-admin:write" scopes.
+function methodToActions(method) {
+  switch (method) {
+    case "GET":
+    case "HEAD":
+      return ["READ"];
+    case "POST":
+      return ["CREATE"];
+    case "PUT":
+    case "PATCH":
+      return ["UPDATE"];
+    case "DELETE":
+      return ["DELETE"];
+    default:
+      return ["WRITE"];
+  }
+}
+
+function authorize(requiredPermission, tokenActions = []) {
   return async (req, res, next) => {
     try {
       const user = await resolveUser(req.auth.claims);
@@ -155,7 +177,6 @@ function authorize(requiredPermission) {
           "No active internal user matches the authenticated subject",
         );
       }
-
       // ---------------------------------------------------------
       // 1. Resolve permissions from user's active roles
       // ---------------------------------------------------------
@@ -192,7 +213,6 @@ function authorize(requiredPermission) {
           },
         ],
       });
-
       const permissions = new Set();
 
       for (const assignment of assignments) {
@@ -204,34 +224,45 @@ function authorize(requiredPermission) {
           }
         }
       }
-
       // ---------------------------------------------------------
       // 2. Token permissions
       // ---------------------------------------------------------
       const tokenScopes = req.auth.scopes || new Set();
-
       // ALL_PERMISSIONS means the JWT itself grants everything
-      const tokenAllowsAll =
-        tokenScopes.has("ALL_PERMISSIONS") ||
-        tokenScopes.has("identity-admin:*") || 
-        tokenScopes.has("IDENTITY-ADMIN:TENANT_USERS:*");
-console.log("tokenScopes ==> ",tokenScopes);
-console.log("requiredPermission ==> ",requiredPermission);       
-console.log("tokenAllowsAll ==> ", tokenAllowsAll);
-      const tokenAllowsSpecific = tokenScopes.has(requiredPermission);
-console.log("tokenAllowsSpecific ==> ", tokenAllowsSpecific);
+      const tokenAllowsAll = tokenActions.some(
+        (action) =>
+          tokenScopes.has(`IDENTITY-ADMIN:TENANT_USERS:${action}`) ||
+          tokenScopes.has("IDENTITY-ADMIN:TENANT_USERS:*") ||
+          tokenScopes.has("ALL_PERMISSIONS"),
+      );
+      // Accept either the flat "identity-admin:read"/"identity-admin:write"
+      // scope, or a fine-grained resource scope of the form
+      // "IDENTITY-ADMIN:<RESOURCE>:<ACTION>" (e.g. "IDENTITY-ADMIN:TENANT_USERS:READ")
+      // whose ACTION matches what this HTTP method requires.
+      const tokenAllowsSpecific =
+        tokenScopes.has(requiredPermission) ||
+        [...tokenScopes].some((scope) => {
+          const parts = scope.toUpperCase().split(":");
+          if (parts.length !== 3) return false;
+          const [service, , action] = parts;
+          return service === "IDENTITY-ADMIN" && tokenActions.includes(action);
+        });
+
       const tokenAllows = tokenAllowsAll || tokenAllowsSpecific;
 
       // ---------------------------------------------------------
       // 3. Role permissions
       // ---------------------------------------------------------
-      const roleAllowsAll =
-        permissions.has("ALL_PERMISSIONS") ||
-        permissions.has("identity-admin:*");
-        permissions.has("identity-admin:tenant_users:*")
-
+      const roleAllowsAll = tokenActions.some(
+        (action) =>
+          tokenScopes.has(`IDENTITY-ADMIN:TENANT_USERS:${action}`) ||
+          tokenScopes.has("IDENTITY-ADMIN:TENANT_USERS:*") ||
+          permissions.has("identity-admin:*") ||
+          tokenScopes.has("ALL_PERMISSIONS"),
+      );
+console.log("roleAllowsAll ==> ", roleAllowsAll);
       const roleAllowsSpecific = permissions.has(requiredPermission);
-
+      console.log("roleAllowsSpecific ==> ", roleAllowsSpecific);
       const roleAllows = roleAllowsAll || roleAllowsSpecific;
 
       // ---------------------------------------------------------
@@ -273,4 +304,9 @@ function tenantMatchesPath(paramName) {
   };
 }
 
-module.exports = { authenticate, authorize, tenantMatchesPath };
+module.exports = {
+  authenticate,
+  authorize,
+  tenantMatchesPath,
+  methodToActions,
+};
