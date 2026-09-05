@@ -208,7 +208,7 @@ class RegistrationService {
           displayName: displayName || `${firstName} ${lastName}`.trim(),
           phoneCountryCode,
           phoneNumber,
-          userType: "USER",
+          userType: "TENANT-ADMIN",
         },
         null,
       );
