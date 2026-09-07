@@ -15,6 +15,8 @@ class TenantController {
         limit,
         status,
         search,
+        tenantUuid: req.auth.tenantUuid,
+        isSuperAdmin: req.auth.isSuperAdmin,
       });
       return res.status(200).json(tenants);
     } catch (error) {
@@ -24,7 +26,10 @@ class TenantController {
 
   getTenantById = async (req, res, next) => {
     try {
-      const tenant = await tenantService.getTenantById(req.params.tenantUuid);
+      const tenant = await tenantService.getTenantById(req.params.tenantUuid, {
+        tenantUuid: req.auth.tenantUuid,
+        isSuperAdmin: req.auth.isSuperAdmin,
+      });
       return res.status(200).json(tenant);
     } catch (error) {
       return next(error);
@@ -33,6 +38,13 @@ class TenantController {
 
   createTenant = async (req, res, next) => {
     try {
+      if (!req.auth.isSuperAdmin) {
+        const error = new Error("Only SUPERADMIN can create tenants");
+        error.statusCode = 403;
+        error.code = "INSUFFICIENT_PERMISSION";
+        error.expose = true;
+        throw error;
+      }
       validateCreatePayload(req.body);
       const tenant = await tenantService.createTenant(
         req.body,
@@ -51,6 +63,7 @@ class TenantController {
         req.params.tenantUuid,
         req.body,
         req.auth.userId,
+        { tenantUuid: req.auth.tenantUuid, isSuperAdmin: req.auth.isSuperAdmin },
       );
       return res.status(200).json(provider);
     } catch (error) {
@@ -63,6 +76,7 @@ class TenantController {
       const provider = await tenantService.deleteTenant(
         req.params.tenantUuid,
         req.auth.userId,
+        { tenantUuid: req.auth.tenantUuid, isSuperAdmin: req.auth.isSuperAdmin },
       );
       return res.status(200).json(provider);
     } catch (error) {
@@ -77,6 +91,7 @@ class TenantController {
         req.params.tenantUuid,
         req.body.status,
         req.auth.userId,
+        { tenantUuid: req.auth.tenantUuid, isSuperAdmin: req.auth.isSuperAdmin },
       );
       return res.status(200).json(provider);
     } catch (error) {
@@ -87,7 +102,10 @@ class TenantController {
   //For Dropdowns
   getTenants = async (req, res) => {
     try {
-      const tenants = await tenantService.getTenants();
+      const tenants = await tenantService.getTenants({
+        tenantUuid: req.auth.tenantUuid,
+        isSuperAdmin: req.auth.isSuperAdmin,
+      });
       return res.status(200).json({
         success: true,
         count: tenants.length,

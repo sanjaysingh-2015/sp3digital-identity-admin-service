@@ -165,6 +165,21 @@ function methodToActions(method) {
   }
 }
 
+// True if any scope/permission code in `codes` is of the form
+// "IDENTITY-ADMIN:<RESOURCE>:<ACTION>" (case-insensitive) with an ACTION
+// present in `actions`. Shared by the token-scope check and the DB
+// role-permission check, since both sources use this same fine-grained
+// naming convention alongside (or instead of) flat codes like
+// "identity-admin:read".
+function matchesFineGrainedIdentityAdminScope(codes, actions) {
+  return [...codes].some((code) => {
+    const parts = code.toUpperCase().split(":");
+    if (parts.length !== 3) return false;
+    const [service, , action] = parts;
+    return service === "IDENTITY-ADMIN" && actions.includes(action);
+  });
+}
+
 function authorize(requiredPermission, tokenActions = []) {
   return async (req, res, next) => {
     try {
@@ -178,7 +193,7 @@ function authorize(requiredPermission, tokenActions = []) {
         );
       }
       // ---------------------------------------------------------
-      // 1. Resolve permissions from user's active roles
+      // 1. Resolve permissions and role codes from user's active roles
       // ---------------------------------------------------------
       const assignments = await UserRoles.findAll({
         where: {
@@ -214,8 +229,12 @@ function authorize(requiredPermission, tokenActions = []) {
         ],
       });
       const permissions = new Set();
+      const roleCodes = new Set();
 
       for (const assignment of assignments) {
+        if (assignment.Role?.role_code) {
+          roleCodes.add(assignment.Role.role_code);
+        }
         for (const mapping of assignment.Role?.RolePermissions || []) {
           const permissionCode = mapping.Permission?.permission_code;
 
@@ -224,45 +243,47 @@ function authorize(requiredPermission, tokenActions = []) {
           }
         }
       }
+
+      // SUPERADMIN bypasses per-tenant data scoping everywhere (see
+      // userService/tenantService); every other role is confined to
+      // req.auth.tenantUuid.
+      const isSuperAdmin = roleCodes.has("SUPERADMIN");
+
       // ---------------------------------------------------------
-      // 2. Token permissions
+      // 2. Token permissions (what the JWT itself claims to allow)
       // ---------------------------------------------------------
       const tokenScopes = req.auth.scopes || new Set();
+
       // ALL_PERMISSIONS means the JWT itself grants everything
-      const tokenAllowsAll = tokenActions.some(
-        (action) =>
-          tokenScopes.has(`IDENTITY-ADMIN:TENANT_USERS:${action}`) ||
-          tokenScopes.has("IDENTITY-ADMIN:TENANT_USERS:*") ||
-          tokenScopes.has("ALL_PERMISSIONS"),
-      );
+      const tokenAllowsAll =
+        tokenScopes.has("ALL_PERMISSIONS") ||
+        tokenScopes.has("identity-admin:*") ||
+        tokenScopes.has("IDENTITY-ADMIN:TENANT_USERS:*");
+
       // Accept either the flat "identity-admin:read"/"identity-admin:write"
       // scope, or a fine-grained resource scope of the form
       // "IDENTITY-ADMIN:<RESOURCE>:<ACTION>" (e.g. "IDENTITY-ADMIN:TENANT_USERS:READ")
       // whose ACTION matches what this HTTP method requires.
       const tokenAllowsSpecific =
         tokenScopes.has(requiredPermission) ||
-        [...tokenScopes].some((scope) => {
-          const parts = scope.toUpperCase().split(":");
-          if (parts.length !== 3) return false;
-          const [service, , action] = parts;
-          return service === "IDENTITY-ADMIN" && tokenActions.includes(action);
-        });
+        matchesFineGrainedIdentityAdminScope(tokenScopes, tokenActions);
 
       const tokenAllows = tokenAllowsAll || tokenAllowsSpecific;
 
       // ---------------------------------------------------------
-      // 3. Role permissions
+      // 3. Role permissions (what the DB says this user's role(s) grant —
+      //    independent of what the token claims, as a defense-in-depth
+      //    check against a token that over-claims scopes)
       // ---------------------------------------------------------
-      const roleAllowsAll = tokenActions.some(
-        (action) =>
-          tokenScopes.has(`IDENTITY-ADMIN:TENANT_USERS:${action}`) ||
-          tokenScopes.has("IDENTITY-ADMIN:TENANT_USERS:*") ||
-          permissions.has("identity-admin:*") ||
-          tokenScopes.has("ALL_PERMISSIONS"),
-      );
-console.log("roleAllowsAll ==> ", roleAllowsAll);
-      const roleAllowsSpecific = permissions.has(requiredPermission);
-      console.log("roleAllowsSpecific ==> ", roleAllowsSpecific);
+      const roleAllowsAll =
+        permissions.has("ALL_PERMISSIONS") ||
+        permissions.has("identity-admin:*") ||
+        permissions.has("identity-admin:tenant_users:*");
+
+      const roleAllowsSpecific =
+        permissions.has(requiredPermission) ||
+        matchesFineGrainedIdentityAdminScope(permissions, tokenActions);
+
       const roleAllows = roleAllowsAll || roleAllowsSpecific;
 
       // ---------------------------------------------------------
@@ -281,6 +302,8 @@ console.log("roleAllowsAll ==> ", roleAllowsAll);
       // ---------------------------------------------------------
       req.auth.userId = user.user_id;
       req.auth.permissions = permissions;
+      req.auth.roleCodes = roleCodes;
+      req.auth.isSuperAdmin = isSuperAdmin;
 
       return next();
     } catch (error) {

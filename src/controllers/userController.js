@@ -1,10 +1,15 @@
 const userService = require('../services/userService');
 
+function tenantContext(req) {
+  return { tenantUuid: req.auth.tenantUuid, isSuperAdmin: req.auth.isSuperAdmin };
+}
+
 exports.getUsers = async (req, res, next) => {
   try {
     const { page, limit, status, userType, search } = req.query;
-    
-    const users = await userService.getUsers(req.auth.tenantUuid, { page, limit, status, userType, search });
+    const tenantUuid = req.auth.isSuperAdmin ? undefined : req.auth.tenantUuid;
+
+    const users = await userService.getUsers(tenantUuid, { page, limit, status, userType, search });
     return res.status(200).json(users);
   } catch (error) {
     return next(error);
@@ -13,7 +18,7 @@ exports.getUsers = async (req, res, next) => {
 
 exports.getUserById = async (req, res, next) => {
   try {
-    const user = await userService.getUserById(req.params.userId);
+    const user = await userService.getUserById(req.params.userId, tenantContext(req));
     return res.status(200).json(user);
   } catch (error) {
     return next(error);
@@ -31,7 +36,7 @@ exports.createUser = async (req, res, next) => {
 
 exports.updateUser = async (req, res, next) => {
   try {
-    const user = await userService.updateUser(req.params.userId, req.body, req.auth.userId);
+    const user = await userService.updateUser(req.params.userId, req.body, req.auth.userId, tenantContext(req));
     return res.status(201).json(user);
   } catch (error) {
     return next(error);
@@ -40,7 +45,7 @@ exports.updateUser = async (req, res, next) => {
 
 exports.deleteUser = async (req, res, next) => {
   try {
-    const user = await userService.deleteUser(req.params.userId, req.body, req.auth.userId);
+    const user = await userService.deleteUser(req.params.userId, req.body, req.auth.userId, tenantContext(req));
     return res.status(201).json(user);
   } catch (error) {
     return next(error);
@@ -50,7 +55,7 @@ exports.deleteUser = async (req, res, next) => {
 exports.assignRole = async (req, res, next) => {
   try {
     const { roleIds, effectiveFrom, effectiveTo } = req.body;
-    const result = await userService.assignRole(req.params.userId, roleIds, effectiveFrom, effectiveTo, req.auth.userId);
+    const result = await userService.assignRole(req.params.userId, roleIds, effectiveFrom, effectiveTo, req.auth.userId, tenantContext(req));
     return res.status(200).json(result);
   } catch (error) {
     return next(error);
@@ -60,7 +65,7 @@ exports.assignRole = async (req, res, next) => {
 exports.getUserRoles = async (req, res, next) => {
   try {
     const includeExpired = req.query.includeExpired === 'true';
-    const roles = await userService.getUserRoles(req.params.userId, { includeExpired });
+    const roles = await userService.getUserRoles(req.params.userId, { includeExpired }, tenantContext(req));
     return res.status(200).json({ items: roles });
   } catch (error) {
     return next(error);
@@ -69,7 +74,7 @@ exports.getUserRoles = async (req, res, next) => {
 
 exports.updateUserRole = async (req, res, next) => {
   try {
-    const result = await userService.updateUserRole(req.params.userId, req.params.userRoleId, req.body, req.auth.userId);
+    const result = await userService.updateUserRole(req.params.userId, req.params.userRoleId, req.body, req.auth.userId, tenantContext(req));
     return res.status(200).json(result);
   } catch (error) {
     return next(error);

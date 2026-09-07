@@ -66,9 +66,10 @@ class UserService {
     );
   }
 
-  async getUserById(userId) {
+  async getUserById(userId, context = { isSuperAdmin: true }) {
     const user = await Users.findByPk(userId, {
       attributes: [
+        ["tenant_uuid", "tenantUuid"],
         ["user_id", "userId"],
         ["user_uuid", "userUuid"],
         "username",
@@ -85,7 +86,16 @@ class UserService {
     });
 
     if (!user) throw notFound("User");
+    this._assertTenantAccess(user, context);
     return user;
+  }
+
+  /** Throws 404 (not 403) if a non-SUPERADMIN caller's tenant doesn't own this row —
+   *  avoids confirming to a TENANT_ADMIN that a user in another tenant exists. */
+  _assertTenantAccess(user, { tenantUuid, isSuperAdmin } = {}) {
+    if (isSuperAdmin) return;
+    const userTenantUuid = user.tenantUuid ?? user.tenant_uuid;
+    if (userTenantUuid !== tenantUuid) throw notFound("User");
   }
 
   async createUser(userData, actorUserId) {
@@ -139,9 +149,10 @@ class UserService {
     };
   }
 
-  async updateUser(userId, userData, actorUserId) {
+  async updateUser(userId, userData, actorUserId, context = { isSuperAdmin: true }) {
     const user = await Users.findOne({ where: { user_id: userId } });
     if (!user) throw notFound("User");
+    this._assertTenantAccess(user, context);
     assertNotRevoked(user, "User");
 
     await user.update({
@@ -156,9 +167,10 @@ class UserService {
     return user;
   }
 
-  async deleteUser(userId, userData, actorUserId) {
+  async deleteUser(userId, userData, actorUserId, context = { isSuperAdmin: true }) {
     const user = await Users.findOne({ where: { user_id: userId } });
     if (!user) throw notFound("User");
+    this._assertTenantAccess(user, context);
     assertNotRevoked(user, "User");
 
     await user.update({
@@ -172,7 +184,11 @@ class UserService {
   }
 
   /** POST /api/v1/identity-admin/users/:userId/roles */
-  async assignRole(userId, roleIds, effectiveFrom, effectiveTo, actorUserId) {
+  async assignRole(userId, roleIds, effectiveFrom, effectiveTo, actorUserId, context = { isSuperAdmin: true }) {
+    const targetUser = await Users.findOne({ where: { user_id: userId } });
+    if (!targetUser) throw notFound("User");
+    this._assertTenantAccess(targetUser, context);
+
     const transaction = await sequelize.transaction();
      const now = new Date();
     try {
@@ -305,7 +321,11 @@ class UserService {
    * (effective_from <= now <= effective_to, treating a null bound as open-ended).
    * Pass includeExpired=true to see the full assignment history.
    */
-  async getUserRoles(userId, { includeExpired = false } = {}) {
+  async getUserRoles(userId, { includeExpired = false } = {}, context = { isSuperAdmin: true }) {
+    const targetUser = await Users.findOne({ where: { user_id: userId } });
+    if (!targetUser) throw notFound("User");
+    this._assertTenantAccess(targetUser, context);
+
     const now = new Date();
     const where = { user_id: userId, status: "ACTIVE" };
     if (!includeExpired) {
@@ -362,7 +382,11 @@ class UserService {
    * (status INACTIVE / effectiveTo = now) — the lifecycle equivalent of
    * "deactivate" for a role grant instead of deleting the row.
    */
-  async updateUserRole(userId, userRoleId, data, actorUserId) {
+  async updateUserRole(userId, userRoleId, data, actorUserId, context = { isSuperAdmin: true }) {
+    const targetUser = await Users.findOne({ where: { user_id: userId } });
+    if (!targetUser) throw notFound("User");
+    this._assertTenantAccess(targetUser, context);
+
     return sequelize.transaction(async (transaction) => {
       const userRole = await UserRoles.findOne({
         where: { user_role_id: userRoleId, user_id: userId },

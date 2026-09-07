@@ -65,10 +65,11 @@ class TenantService {
     return tenants;
   }
 
-  async getTenants() {
+  async getTenants({ tenantUuid, isSuperAdmin } = {}) {
     const whereClause = {
       status: "ACTIVE", // Returns active tenants by default
     };
+    if (!isSuperAdmin) whereClause.tenant_uuid = tenantUuid;
 
     const tenants = await IdentityTenants.findAll({
       where: whereClause,
@@ -88,7 +89,7 @@ class TenantService {
   }
 
   /** GET /api/v1/identity-admin/identity-tenants — paginated + filterable (status, search on name/type). */
-  async getTenantList({ page, limit, status, search } = {}) {
+  async getTenantList({ page, limit, status, search, tenantUuid, isSuperAdmin } = {}) {
     const {
       limit: safeLimit,
       offset,
@@ -96,8 +97,9 @@ class TenantService {
     } = toSequelizePage({ page, limit });
     const where = {};
     if (status) where.status = status;
-    if (search) where.tenant_name = { [Op.like]: `%${search}%` } 
-    
+    if (search) where.tenant_name = { [Op.like]: `%${search}%` }
+    if (!isSuperAdmin) where.tenant_uuid = tenantUuid;
+
     const result = await IdentityTenants.findAndCountAll({
       where,
       attributes: TENANT_ATTRIBUTES,
@@ -112,7 +114,14 @@ class TenantService {
     );
   }
 
-  async getTenantById(tenantUuid) {
+  async getTenantById(tenantUuid, context = { isSuperAdmin: true }) {
+    const { tenantUuid: callerTenantUuid, isSuperAdmin } = context;
+    if (!isSuperAdmin && tenantUuid !== callerTenantUuid) {
+      // 404, not 403 — don't confirm to a TENANT_ADMIN that another
+      // tenant with this UUID even exists.
+      throw notFound("Tenant");
+    }
+
     const where = { tenant_uuid: tenantUuid };
     const tenant = await IdentityTenants.findOne({
       where,
@@ -124,7 +133,11 @@ class TenantService {
   }
 
   /** Internal: fetch raw model row (with secret column) for update/delete/status flows. */
-  async _findEntityOrThrow(tenantUuid, transaction) {
+  async _findEntityOrThrow(tenantUuid, transaction, { tenantUuid: callerTenantUuid, isSuperAdmin } = {}) {
+    if (!isSuperAdmin && tenantUuid !== callerTenantUuid) {
+      throw notFound("Tenant");
+    }
+
     const where = { tenant_uuid: tenantUuid };
     const tenant = await IdentityTenants.findOne({
       where: {
@@ -137,7 +150,6 @@ class TenantService {
       throw notFound("Tenant");
     }
 
-    if (!tenant) throw notFound("Tenant");
     return tenant;
   }
 
@@ -187,9 +199,9 @@ class TenantService {
     return this.getTenantById(created.tenantUuid);
   }
 
-  async updateTenant(tenantUuid, data, actorUserId) {
+  async updateTenant(tenantUuid, data, actorUserId, context = { isSuperAdmin: true }) {
     return sequelize.transaction(async (transaction) => {
-      const tenant = await this._findEntityOrThrow(tenantUuid, transaction);
+      const tenant = await this._findEntityOrThrow(tenantUuid, transaction, context);
 
       assertNotRevoked(tenant, "Tenant");
       assertMutable(tenant, "Tenant");
@@ -221,8 +233,8 @@ class TenantService {
   }
 
   /** Soft delete: sets status to DELETED, never removes the row. */
-  async deleteTenant(tenantUuid, actorUserId) {
-    const tenant = await this._findEntityOrThrow(tenantUuid);
+  async deleteTenant(tenantUuid, actorUserId, context = { isSuperAdmin: true }) {
+    const tenant = await this._findEntityOrThrow(tenantUuid, undefined, context);
     assertNotRevoked(tenant, "Tenant");
 
     await tenant.update({
@@ -235,9 +247,9 @@ class TenantService {
   }
 
   /** PATCH .../:id/status — dedicated lifecycle transition endpoint. */
-  async updateStatus(tenantUuid, status, actorUserId) {
+  async updateStatus(tenantUuid, status, actorUserId, context = { isSuperAdmin: true }) {
     return sequelize.transaction(async (transaction) => {
-      const tenant = await this._findEntityOrThrow(tenantUuid, transaction);
+      const tenant = await this._findEntityOrThrow(tenantUuid, transaction, context);
       assertNotRevoked(tenant, "Tenant");
       assertMutable(tenant, "Tenant");
 
