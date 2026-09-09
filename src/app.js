@@ -6,7 +6,6 @@ const swaggerSpec = require('./config/swagger');
 const db = require('./models'); // Imports index.js which loads all models & sequelize
 const { authenticate, authorize, methodToActions } = require('./middleware/authentication');
 const { auditWrites } = require('./middleware/audit');
-const authController = require('./controllers/authController');
 const publicController = require('./controllers/publicController');
 const { validate } = require('./middleware/validate');
 const { registerOrganizationSchema } = require('./validations/registration.validation');
@@ -63,7 +62,15 @@ const authorizeAdminRequest = (req, res, next) => {
   return authorize(permission, methodToActions(req.method))(req, res, next);
 };
 
-app.post('/api/v1/identity-admin/auth/login', authController.login)
+// NOTE: /auth/login is intentionally NOT registered here. It is handled
+// exclusively by authRoutes.js below, which wraps it in loginRateLimiter
+// (IP-based brute-force protection) and Joi request validation. A
+// duplicate, unprotected registration of this exact path used to live
+// here; because Express matches routes in registration order, it was
+// shadowing authRoutes.js's protected handler and silently defeating
+// both the rate limiter and the input validation on the single most-
+// attacked endpoint in this service. Do not re-add a direct app.post/
+// app.get registration for this path.
 app.get('/api/v1/identity-admin/public/tenants/search', publicController.searchTenants);
 
 // authRoutes.js's own routes (login/mfa, token/refresh, logout, change-password)
@@ -142,4 +149,12 @@ async function startServer() {
   }
 }
 
-startServer();
+// Only auto-start when this file is run directly (`node src/app.js` /
+// `npm start`). When required from a test (`require('../src/app')`),
+// the caller gets the configured `app` instance without a live server
+// or DB connection being started as a side effect of `require`.
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = app;

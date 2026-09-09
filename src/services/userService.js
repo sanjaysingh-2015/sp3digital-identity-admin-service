@@ -1,6 +1,12 @@
-const { Users, Roles, UserRoles, sequelize } = require("../models");
+const {
+  Users,
+  Roles,
+  UserRoles,
+  IdentityTenants,
+  sequelize,
+} = require("../models");
 const { v4: uuidv4 } = require("uuid");
-const { Op } = require("sequelize");
+const { Op, col } = require("sequelize");
 const { toSequelizePage, buildEnvelope } = require("../utils/pagination");
 const UuidUtil = require("../utils/uuid.util");
 const CodeUtil = require("../utils/code.util");
@@ -55,6 +61,14 @@ class UserService {
     const result = await Users.findAndCountAll({
       where,
       attributes: USER_ATTRIBUTES,
+      include: [
+        {
+          model: IdentityTenants, // the model mapped to identity_tenant
+          as: "tenant", // must match the alias used in the association
+          attributes: [["tenant_name", "tenantName"]],
+          required: false, // LEFT JOIN so users without a matching tenant still return
+        },
+      ],
       order: [["created_on", "DESC"]],
       limit: safeLimit,
       offset,
@@ -82,6 +96,14 @@ class UserService {
         ["phone_country_code", "phoneCountryCode"],
         ["phone_number", "phoneNumber"],
         "status",
+      ],
+      include: [
+        {
+          model: IdentityTenants, // the model mapped to identity_tenant
+          as: "tenant", // must match the alias used in the association
+          attributes: [["tenant_name", "tenantName"]],
+          required: false, // LEFT JOIN so users without a matching tenant still return
+        },
       ],
     });
 
@@ -149,7 +171,12 @@ class UserService {
     };
   }
 
-  async updateUser(userId, userData, actorUserId, context = { isSuperAdmin: true }) {
+  async updateUser(
+    userId,
+    userData,
+    actorUserId,
+    context = { isSuperAdmin: true },
+  ) {
     const user = await Users.findOne({ where: { user_id: userId } });
     if (!user) throw notFound("User");
     this._assertTenantAccess(user, context);
@@ -167,7 +194,12 @@ class UserService {
     return user;
   }
 
-  async deleteUser(userId, userData, actorUserId, context = { isSuperAdmin: true }) {
+  async deleteUser(
+    userId,
+    userData,
+    actorUserId,
+    context = { isSuperAdmin: true },
+  ) {
     const user = await Users.findOne({ where: { user_id: userId } });
     if (!user) throw notFound("User");
     this._assertTenantAccess(user, context);
@@ -184,13 +216,20 @@ class UserService {
   }
 
   /** POST /api/v1/identity-admin/users/:userId/roles */
-  async assignRole(userId, roleIds, effectiveFrom, effectiveTo, actorUserId, context = { isSuperAdmin: true }) {
+  async assignRole(
+    userId,
+    roleIds,
+    effectiveFrom,
+    effectiveTo,
+    actorUserId,
+    context = { isSuperAdmin: true },
+  ) {
     const targetUser = await Users.findOne({ where: { user_id: userId } });
     if (!targetUser) throw notFound("User");
     this._assertTenantAccess(targetUser, context);
 
     const transaction = await sequelize.transaction();
-     const now = new Date();
+    const now = new Date();
     try {
       // Remove duplicate permission IDs
       const uniqueRoleIds = [...new Set(roleIds.map((id) => Number(id)))];
@@ -239,7 +278,7 @@ class UserService {
           {
             status: "ACTIVE",
             effective_to: null,
-            effective_from: effectiveFrom || now
+            effective_from: effectiveFrom || now,
           },
           {
             where: {
@@ -247,7 +286,7 @@ class UserService {
               role_id: toActivate,
               status: "INACTIVE",
             },
-            transaction
+            transaction,
           },
         );
       }
@@ -255,7 +294,7 @@ class UserService {
       // Insert new mappings
       if (toInsert.length) {
         await UserRoles.bulkCreate(toInsert, {
-          transaction
+          transaction,
         });
       }
 
@@ -321,7 +360,11 @@ class UserService {
    * (effective_from <= now <= effective_to, treating a null bound as open-ended).
    * Pass includeExpired=true to see the full assignment history.
    */
-  async getUserRoles(userId, { includeExpired = false } = {}, context = { isSuperAdmin: true }) {
+  async getUserRoles(
+    userId,
+    { includeExpired = false } = {},
+    context = { isSuperAdmin: true },
+  ) {
     const targetUser = await Users.findOne({ where: { user_id: userId } });
     if (!targetUser) throw notFound("User");
     this._assertTenantAccess(targetUser, context);
@@ -362,7 +405,7 @@ class UserService {
             ["role_name", "roleName"],
           ],
         },
-      ]
+      ],
     });
 
     return userRoles.map((ur) => ({
@@ -382,7 +425,13 @@ class UserService {
    * (status INACTIVE / effectiveTo = now) — the lifecycle equivalent of
    * "deactivate" for a role grant instead of deleting the row.
    */
-  async updateUserRole(userId, userRoleId, data, actorUserId, context = { isSuperAdmin: true }) {
+  async updateUserRole(
+    userId,
+    userRoleId,
+    data,
+    actorUserId,
+    context = { isSuperAdmin: true },
+  ) {
     const targetUser = await Users.findOne({ where: { user_id: userId } });
     if (!targetUser) throw notFound("User");
     this._assertTenantAccess(targetUser, context);

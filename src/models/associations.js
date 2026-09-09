@@ -156,4 +156,8 @@ module.exports = (db) => {
     if (User) AuditLog.belongsTo(User, { foreignKey: 'actor_user_id', targetKey: 'user_id', as: 'actor' });
     if (IdentityTenants) AuditLog.belongsTo(IdentityTenants, { foreignKey: 'tenant_uuid', targetKey: 'tenantUuid', as: 'tenant' });
   }
+
+  if (IdentityTenants) {
+    User.belongsTo(IdentityTenants, { foreignKey: 'tenant_uuid', targetKey: 'tenantUuid', as: "tenant" });
+  }
 };

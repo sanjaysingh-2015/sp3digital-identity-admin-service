@@ -1,16 +1,31 @@
 const { AuthConfiguration } = require('../models');
 
+function notFound(entity) {
+  const error = new Error(`${entity} not found`);
+  error.statusCode = 404;
+  error.code = 'NOT_FOUND';
+  error.expose = true;
+  return error;
+}
+
 class AuthConfigService {
   async getConfigByTenant(tenantUuid) {
     const config = await AuthConfiguration.findOne({
       where: { tenant_uuid: tenantUuid, status: 'ACTIVE' }
     });
-    if (!config) {
-      throw new Error('Authentication configuration not found for tenant');
-    }
+    if (!config) throw notFound("User");
+    this._assertTenantAccess(user, context);
     return config;
   }
 
+    /** Throws 404 (not 403) if a non-SUPERADMIN caller's tenant doesn't own this row —
+   *  avoids confirming to a TENANT_ADMIN that a user in another tenant exists. */
+  _assertTenantAccess(user, { tenantUuid, isSuperAdmin } = {}) {
+    if (isSuperAdmin) return;
+    const userTenantUuid = user.tenantUuid ?? user.tenant_uuid;
+    if (userTenantUuid !== tenantUuid) throw notFound("User");
+  }
+  
   async updateConfig(tenantUuid, data) {
     let [config, created] = await AuthConfiguration.findOrCreate({
       where: { tenant_uuid: tenantUuid },
