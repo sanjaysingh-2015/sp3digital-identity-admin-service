@@ -138,12 +138,14 @@ function getJwks() {
  * Access token: short-lived, authorizes API calls. Carries the claims
  * authentication.js already expects (tenant_uuid, user_id, permissions).
  */
-function signAccessToken({ userId, userUuid, tenantUuid, audience, permissions = [] }) {
+function signAccessToken({ userId, userUuid, userName, tenantName, tenantUuid, audience, permissions = [] }) {
   return jwt.sign(
     {
       sub: userUuid,
       user_id: userId,
+      userName,
       tenant_uuid: tenantUuid,
+      tenantName: tenantName,
       permissions,
       token_use: 'access'
     },
@@ -162,7 +164,7 @@ function signAccessToken({ userId, userUuid, tenantUuid, audience, permissions =
  * ID token: OIDC-style identity assertion about the authenticated user.
  * Not used for authorization — callers should rely on the access token for that.
  */
-function signIdToken({ userId, userUuid, tenantUuid, audience, email, username, firstName, lastName, mfaVerified }) {
+function signIdToken({ userId, userUuid, tenantUuid, audience, email, username, firstName, lastName, tenantName, mfaVerified }) {
   return jwt.sign(
     {
       sub: userUuid,
@@ -172,6 +174,7 @@ function signIdToken({ userId, userUuid, tenantUuid, audience, email, username, 
       preferred_username: username,
       given_name: firstName,
       family_name: lastName,
+      tenant_name: tenantName,
       amr: mfaVerified ? ['pwd', 'mfa'] : ['pwd'],
       token_use: 'id'
     },

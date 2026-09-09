@@ -4,6 +4,7 @@ const { Op } = require("sequelize");
 const {
   Users,
   UserRoles,
+  IdentityTenants,
   Roles,
   RolePermissions,
   Permissions,
@@ -94,7 +95,7 @@ async function findLoginUser(usernameOrEmail, tenantUuid) {
 
 /** Creates the session row + signs/stores the token triad. Shared by direct login, MFA completion, and refresh. */
 async function issueTokens(
-  { user, tenantUuid, audience, ipAddress, userAgent, mfaVerified },
+  { user, tenantUuid, audience, ipAddress, userAgent, mfaVerified, tenantName },
   transaction,
 ) {
   // ---------------------------------------------------------
@@ -167,6 +168,8 @@ async function issueTokens(
   const accessToken = tokenService.signAccessToken({
     userId: user.user_id,
     userUuid: user.user_uuid,
+    userName: user.username,
+    tenantName,
     tenantUuid,
     audience,
     permissions,
@@ -184,6 +187,7 @@ async function issueTokens(
     username: user.username,
     firstName: user.first_name,
     lastName: user.last_name,
+    tenantName,
     mfaVerified,
   });
 
@@ -280,6 +284,7 @@ class AuthService {
       };
     }
 
+    const tenant = await IdentityTenants.findByPk(user?.tenant_uuid);
     const result = await sequelize.transaction((transaction) =>
       issueTokens(
         {
@@ -289,6 +294,7 @@ class AuthService {
           ipAddress,
           userAgent,
           mfaVerified: false,
+          tenantName: tenant.tenantName || tenant.tenant_name, 
         },
         transaction,
       ),
