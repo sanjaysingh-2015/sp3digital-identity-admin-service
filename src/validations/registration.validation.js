@@ -14,6 +14,21 @@ const registerOrganizationSchema = Joi.object({
   organizationType: Joi.string().trim().max(50).required(),
   parentOrganizationId: Joi.number().integer().positive().allow(null).optional(),
 
+  // --- Organization address (organization-admin-service) — same shape as
+  // that service's own addressFields (organization.validation.js), filled
+  // in on step 1 of the "Create Organization" wizard alongside the
+  // organization's own details, before step 2 collects the administrator.
+  addressLine1: Joi.string().trim().max(250).allow(null, "").optional(),
+  addressLine2: Joi.string().trim().max(250).allow(null, "").optional(),
+  city: Joi.string().trim().max(100).allow(null, "").optional(),
+  subDistrictName: Joi.string().trim().max(100).allow(null, "").optional(),
+  districtName: Joi.string().trim().max(100).allow(null, "").optional(),
+  stateName: Joi.string().trim().max(100).allow(null, "").optional(),
+  postalCode: Joi.string().trim().max(20).allow(null, "").optional(),
+  country: Joi.string().trim().max(100).allow(null, "").optional(),
+  latitude: Joi.number().min(-90).max(90).allow(null).optional(),
+  longitude: Joi.number().min(-180).max(180).allow(null).optional(),
+
   // --- User (identity-admin-service) ---
   username: Joi.string().trim().min(3).max(100).required(),
   email: Joi.string().trim().email().max(320).required(),
