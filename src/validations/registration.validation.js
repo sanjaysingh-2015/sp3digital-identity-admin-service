@@ -20,12 +20,12 @@ const registerOrganizationSchema = Joi.object({
   // organization's own details, before step 2 collects the administrator.
   addressLine1: Joi.string().trim().max(250).allow(null, "").optional(),
   addressLine2: Joi.string().trim().max(250).allow(null, "").optional(),
-  city: Joi.string().trim().max(100).allow(null, "").optional(),
-  subDistrictName: Joi.string().trim().max(100).allow(null, "").optional(),
-  districtName: Joi.string().trim().max(100).allow(null, "").optional(),
-  stateName: Joi.string().trim().max(100).allow(null, "").optional(),
-  postalCode: Joi.string().trim().max(20).allow(null, "").optional(),
-  country: Joi.string().trim().max(100).allow(null, "").optional(),
+  cityId: Joi.number().allow(null).optional(),
+  subDistrictId: Joi.number().allow(null).optional(),
+  districtId: Joi.number().allow(null).optional(),
+  stateId: Joi.number().allow(null).optional(),
+  postalCodeId: Joi.number().allow(null).optional(),
+  countryId: Joi.number().allow(null).optional(),
   latitude: Joi.number().min(-90).max(90).allow(null).optional(),
   longitude: Joi.number().min(-180).max(180).allow(null).optional(),
 

@@ -29,6 +29,7 @@ class PublicController {
    */
   registerOrganization = async (req, res, next) => {
     try {
+      console.log("Body ==> ", req.body);
       const result = await registrationService.registerOrganization(req.body);
       return res.status(201).json(result);
     } catch (error) {
