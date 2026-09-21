@@ -116,7 +116,7 @@ class UserService {
    *  avoids confirming to a TENANT_ADMIN that a user in another tenant exists. */
   _assertTenantAccess(user, { tenantUuid, isSuperAdmin } = {}) {
     if (isSuperAdmin) return;
-    const userTenantUuid = user.tenantUuid ?? user.tenant_uuid;
+    const userTenantUuid = user?.tenantUuid || user?.dataValues?.tenantUuid || user?.tenant_uuid || user?.dataValues?.tenant_uuid;
     if (userTenantUuid !== tenantUuid) throw notFound("User");
   }
 
